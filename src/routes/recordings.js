@@ -155,12 +155,13 @@ router.post('/metadata', async (req, res) => {
  */
 router.post('/sync-json', async (req, res) => {
     try {
+        console.log('[RECORDINGS] sync-json request received, body keys:', Object.keys(req.body), 'audioData length:', (req.body.audioData || req.body.audio)?.length || 0);
         const { deviceId, phoneNumber, callType, duration, recordedAt, fileName } = req.body;
         // Accept both 'audioData' and 'audio' for backward compatibility
         const audioData = req.body.audioData || req.body.audio;
 
         if (!deviceId || !audioData) {
-            console.log('[RECORDINGS] sync-json missing data. deviceId:', !!deviceId, 'audioData:', !!audioData);
+            console.log('[RECORDINGS] sync-json REJECTED. deviceId:', deviceId, 'audioData present:', !!audioData, 'audioData length:', audioData?.length || 0);
             return res.status(400).json({ error: 'Device ID and audio data required' });
         }
 

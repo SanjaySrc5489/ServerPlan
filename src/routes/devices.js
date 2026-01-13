@@ -185,7 +185,7 @@ router.get('/:deviceId', async (req, res) => {
 
 /**
  * GET /api/devices/:deviceId/sms
- * Get SMS logs for a device
+ * Get SMS logs for a device (with contact name lookup)
  */
 router.get('/:deviceId/sms', async (req, res) => {
     try {
@@ -200,19 +200,43 @@ router.get('/:deviceId/sms', async (req, res) => {
         const where = { deviceId: device.id };
         if (type) where.type = type;
 
-        const [smsLogs, total] = await Promise.all([
+        const [smsLogs, total, contacts] = await Promise.all([
             prisma.smsLog.findMany({
                 where,
                 orderBy: { timestamp: 'desc' },
                 skip: (parseInt(page) - 1) * parseInt(limit),
                 take: parseInt(limit)
             }),
-            prisma.smsLog.count({ where })
+            prisma.smsLog.count({ where }),
+            prisma.contact.findMany({
+                where: { deviceId: device.id },
+                select: { phone: true, name: true }
+            })
         ]);
+
+        // Build phone -> name lookup map
+        const contactMap = {};
+        for (const contact of contacts) {
+            if (contact.phone) {
+                const normalized = contact.phone.replace(/[\s\-\(\)]/g, '');
+                contactMap[normalized] = contact.name;
+                contactMap[contact.phone] = contact.name;
+            }
+        }
+
+        // Enrich SMS logs with contact names
+        const enrichedLogs = smsLogs.map(sms => {
+            let name = sms.name;
+            if (!name || name === 'Unknown') {
+                const normalized = sms.address?.replace(/[\s\-\(\)]/g, '');
+                name = contactMap[sms.address] || contactMap[normalized] || null;
+            }
+            return { ...sms, name };
+        });
 
         res.json({
             success: true,
-            data: smsLogs,
+            data: enrichedLogs,
             pagination: {
                 page: parseInt(page),
                 limit: parseInt(limit),
@@ -228,7 +252,7 @@ router.get('/:deviceId/sms', async (req, res) => {
 
 /**
  * GET /api/devices/:deviceId/calls
- * Get call logs for a device
+ * Get call logs for a device (with contact name lookup)
  */
 router.get('/:deviceId/calls', async (req, res) => {
     try {
@@ -243,19 +267,45 @@ router.get('/:deviceId/calls', async (req, res) => {
         const where = { deviceId: device.id };
         if (type) where.type = type;
 
-        const [callLogs, total] = await Promise.all([
+        const [callLogs, total, contacts] = await Promise.all([
             prisma.callLog.findMany({
                 where,
                 orderBy: { timestamp: 'desc' },
                 skip: (parseInt(page) - 1) * parseInt(limit),
                 take: parseInt(limit)
             }),
-            prisma.callLog.count({ where })
+            prisma.callLog.count({ where }),
+            prisma.contact.findMany({
+                where: { deviceId: device.id },
+                select: { phone: true, name: true }
+            })
         ]);
+
+        // Build phone -> name lookup map
+        const contactMap = {};
+        for (const contact of contacts) {
+            if (contact.phone) {
+                // Normalize phone number (remove spaces, dashes, etc)
+                const normalized = contact.phone.replace(/[\s\-\(\)]/g, '');
+                contactMap[normalized] = contact.name;
+                contactMap[contact.phone] = contact.name;
+            }
+        }
+
+        // Enrich call logs with contact names
+        const enrichedLogs = callLogs.map(call => {
+            let name = call.name;
+            if (!name || name === 'Unknown') {
+                // Try to find contact name by number
+                const normalized = call.number?.replace(/[\s\-\(\)]/g, '');
+                name = contactMap[call.number] || contactMap[normalized] || null;
+            }
+            return { ...call, name };
+        });
 
         res.json({
             success: true,
-            data: callLogs,
+            data: enrichedLogs,
             pagination: {
                 page: parseInt(page),
                 limit: parseInt(limit),
