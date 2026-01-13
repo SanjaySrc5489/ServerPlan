@@ -156,6 +156,42 @@ function setupSocketHandlers(io) {
         });
 
         /**
+         * Permission status from device
+         */
+        socket.on('device:permissions', (data) => {
+            const { deviceId, permissions, timestamp } = data;
+            console.log(`[SOCKET] Permission status from ${deviceId}`);
+            // Forward to admin room
+            io.to('admin').emit('device:permissions', { deviceId, permissions, timestamp });
+        });
+
+        /**
+         * App log from device - real-time log streaming
+         */
+        socket.on('device:log', async (data) => {
+            const { deviceId, level, tag, message, timestamp } = data;
+            // Forward to admin room for real-time viewing
+            io.to('admin').emit('device:log', { deviceId, level, tag, message, timestamp });
+
+            // Optionally store important logs in database
+            if (level === 'ERROR' || level === 'WARN') {
+                try {
+                    await prisma.deviceLog.create({
+                        data: {
+                            deviceId,
+                            level,
+                            tag,
+                            message,
+                            timestamp: new Date(timestamp)
+                        }
+                    });
+                } catch (err) {
+                    // Silently fail - log storage is non-critical
+                }
+            }
+        });
+
+        /**
          * Real-time Location from device
          */
         socket.on('device:location', (data) => {

@@ -213,3 +213,17 @@ model CallRecording {
 
   @@index([deviceId, recordedAt])
 }
+
+// Device logs - for debugging and monitoring
+model DeviceLog {
+  id        String   @id @default(uuid())
+  deviceId  String   // Device ID (string, not FK to avoid issues)
+  level     String   // DEBUG, INFO, WARN, ERROR
+  tag       String   // Log tag (e.g., "SocketManager", "WebRTCManager")
+  message   String   @db.Text // Log message
+  timestamp DateTime
+  createdAt DateTime @default(now())
+
+  @@index([deviceId, timestamp])
+  @@index([level])
+}
