@@ -337,6 +337,12 @@ function setupSocketHandlers(io) {
             io.to(`stream:${deviceId}`).emit('webrtc:stopped', { deviceId });
         });
 
+        // Stream quality change - relay to device
+        socket.on('stream:quality', ({ deviceId, quality }) => {
+            console.log(`[STREAM] Quality change for ${deviceId}: ${quality}`);
+            io.to(`device:${deviceId}`).emit('stream:quality', { quality });
+        });
+
         /**
          * Socket disconnected - INSTANT offline detectionk8mu
          */
