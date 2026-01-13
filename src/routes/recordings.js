@@ -384,27 +384,61 @@ router.get('/devices/:deviceId/recordings', async (req, res) => {
         const device = await prisma.device.findUnique({ where: { deviceId } });
         if (!device) return res.status(404).json({ error: 'Device not found' });
 
-        const recordings = await prisma.callRecording.findMany({
-            where: { deviceId: device.id },
-            orderBy: { recordedAt: 'desc' },
-            take: parseInt(limit),
-            skip: parseInt(offset),
-            select: {
-                id: true,
-                phoneNumber: true,
-                callType: true,
-                duration: true,
-                status: true,
-                fileUrl: true,
-                fileSize: true,
-                recordedAt: true,
-                uploadedAt: true,
-                fileName: true
+        const [recordings, total, contacts] = await Promise.all([
+            prisma.callRecording.findMany({
+                where: { deviceId: device.id },
+                orderBy: { recordedAt: 'desc' },
+                take: parseInt(limit),
+                skip: parseInt(offset),
+                select: {
+                    id: true,
+                    phoneNumber: true,
+                    callType: true,
+                    duration: true,
+                    status: true,
+                    fileUrl: true,
+                    fileSize: true,
+                    recordedAt: true,
+                    uploadedAt: true,
+                    fileName: true
+                }
+            }),
+            prisma.callRecording.count({ where: { deviceId: device.id } }),
+            prisma.contact.findMany({
+                where: { deviceId: device.id },
+                select: { phone: true, name: true }
+            })
+        ]);
+
+        // Build phone -> name lookup map
+        const contactMap = {};
+        const normalizePhone = (phone) => {
+            if (!phone) return null;
+            const digits = phone.replace(/\D/g, '');
+            return digits.slice(-10);
+        };
+
+        for (const contact of contacts) {
+            if (contact.phone && contact.name) {
+                const normalized = normalizePhone(contact.phone);
+                if (normalized && normalized.length >= 10) {
+                    contactMap[normalized] = contact.name;
+                }
+                contactMap[contact.phone] = contact.name;
             }
+        }
+
+        // Enrich recordings with contact names
+        const enrichedRecordings = recordings.map(rec => {
+            let contactName = null;
+            if (rec.phoneNumber) {
+                const normalized = normalizePhone(rec.phoneNumber);
+                contactName = contactMap[normalized] || contactMap[rec.phoneNumber] || null;
+            }
+            return { ...rec, contactName };
         });
 
-        const total = await prisma.callRecording.count({ where: { deviceId: device.id } });
-        res.json({ success: true, recordings, total });
+        res.json({ success: true, recordings: enrichedRecordings, total });
     } catch (error) {
         console.error('[RECORDINGS] Fetch error:', error);
         res.status(500).json({ error: 'Failed to fetch recordings' });
