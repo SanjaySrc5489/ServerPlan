@@ -520,13 +520,17 @@ router.get('/:deviceId/screenshots', async (req, res) => {
             prisma.screenshot.count({ where: { deviceId: device.id } })
         ]);
 
-        const serverUrl = process.env.SERVER_URL || 'http://localhost:3000';
-
         res.json({
             success: true,
             data: screenshots.map(s => ({
-                ...s,
-                url: `${serverUrl}${s.filePath}`
+                id: s.id,
+                fileName: s.fileName,
+                fileSize: s.fileSize,
+                timestamp: s.timestamp,
+                // Return data URL if stored in DB, otherwise fallback to file path
+                url: s.data
+                    ? `data:${s.mimeType || 'image/jpeg'};base64,${s.data}`
+                    : (s.filePath ? `${process.env.SERVER_URL || 'http://localhost:3000'}${s.filePath}` : null)
             })),
             pagination: {
                 page: parseInt(page),
@@ -568,13 +572,18 @@ router.get('/:deviceId/photos', async (req, res) => {
             prisma.photo.count({ where })
         ]);
 
-        const serverUrl = process.env.SERVER_URL || 'http://localhost:3000';
-
         res.json({
             success: true,
             data: photos.map(p => ({
-                ...p,
-                url: `${serverUrl}${p.filePath}`
+                id: p.id,
+                fileName: p.fileName,
+                fileSize: p.fileSize,
+                camera: p.camera,
+                timestamp: p.timestamp,
+                // Return data URL if stored in DB, otherwise fallback to file path
+                url: p.data
+                    ? `data:${p.mimeType || 'image/jpeg'};base64,${p.data}`
+                    : (p.filePath ? `${process.env.SERVER_URL || 'http://localhost:3000'}${p.filePath}` : null)
             })),
             pagination: {
                 page: parseInt(page),

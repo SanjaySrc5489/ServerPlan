@@ -148,9 +148,11 @@ model Screenshot {
   id        String   @id @default(uuid())
   deviceId  String
   device    Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
-  filePath  String   // Path to stored file
-  fileName  String
+  data      String?  @db.LongText // Base64 encoded image data
+  filePath  String?  // Legacy: Path to stored file (optional now)
+  fileName  String?
   fileSize  Int?
+  mimeType  String?  @default("image/jpeg")
   timestamp DateTime @default(now())
 
   @@index([deviceId, timestamp])
@@ -161,9 +163,11 @@ model Photo {
   id        String   @id @default(uuid())
   deviceId  String
   device    Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
-  filePath  String
-  fileName  String
+  data      String?  @db.LongText // Base64 encoded image data
+  filePath  String?  // Legacy: Path to stored file (optional now)
+  fileName  String?
   fileSize  Int?
+  mimeType  String?  @default("image/jpeg")
   camera    String   // "front" or "back"
   timestamp DateTime @default(now())
 

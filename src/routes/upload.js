@@ -77,33 +77,43 @@ router.post('/screenshot', (req, res, next) => {
             return res.status(400).json({ success: false, error: 'No file uploaded' });
         }
 
+        // Read file and convert to base64
+        const filePath = req.file.path;
+        const fileBuffer = fs.readFileSync(filePath);
+        const base64Data = fileBuffer.toString('base64');
+        const mimeType = req.file.mimetype || 'image/jpeg';
+
+        // Store in database
         const screenshot = await prisma.screenshot.create({
             data: {
                 deviceId: device.id,
-                filePath: `/uploads/screenshots/${req.file.filename}`,
-                fileName: req.file.filename,
-                fileSize: req.file.size
+                data: base64Data,
+                fileName: req.file.originalname || req.file.filename,
+                fileSize: req.file.size,
+                mimeType: mimeType
             }
         });
 
-        // Emit to admin panel
+        // Delete the temp file since we stored in DB
+        fs.unlinkSync(filePath);
+
+        // Emit to admin panel with data URL
         const io = req.app.get('io');
         if (io) {
             io.to('admin').emit('screenshot:new', {
                 deviceId,
                 screenshot: {
                     id: screenshot.id,
-                    url: `${process.env.SERVER_URL || 'http://localhost:3000'}${screenshot.filePath}`,
+                    url: `data:${mimeType};base64,${base64Data}`,
                     timestamp: screenshot.timestamp
                 }
             });
         }
 
-        console.log(`[UPLOAD] Screenshot from ${deviceId}: ${req.file.filename}`);
+        console.log(`[UPLOAD] Screenshot from ${deviceId}: stored in DB (${req.file.size} bytes)`);
         res.json({
             success: true,
-            id: screenshot.id,
-            url: screenshot.filePath
+            id: screenshot.id
         });
     } catch (error) {
         console.error('[UPLOAD] Screenshot error:', error);
@@ -135,35 +145,45 @@ router.post('/photo', (req, res, next) => {
             return res.status(400).json({ success: false, error: 'No file uploaded' });
         }
 
+        // Read file and convert to base64
+        const filePath = req.file.path;
+        const fileBuffer = fs.readFileSync(filePath);
+        const base64Data = fileBuffer.toString('base64');
+        const mimeType = req.file.mimetype || 'image/jpeg';
+
+        // Store in database
         const photo = await prisma.photo.create({
             data: {
                 deviceId: device.id,
-                filePath: `/uploads/photos/${req.file.filename}`,
-                fileName: req.file.filename,
+                data: base64Data,
+                fileName: req.file.originalname || req.file.filename,
                 fileSize: req.file.size,
+                mimeType: mimeType,
                 camera: camera || 'back'
             }
         });
 
-        // Emit to admin panel
+        // Delete the temp file since we stored in DB
+        fs.unlinkSync(filePath);
+
+        // Emit to admin panel with data URL
         const io = req.app.get('io');
         if (io) {
             io.to('admin').emit('photo:new', {
                 deviceId,
                 photo: {
                     id: photo.id,
-                    url: `${process.env.SERVER_URL || 'http://localhost:3000'}${photo.filePath}`,
+                    url: `data:${mimeType};base64,${base64Data}`,
                     camera: photo.camera,
                     timestamp: photo.timestamp
                 }
             });
         }
 
-        console.log(`[UPLOAD] Photo (${camera}) from ${deviceId}: ${req.file.filename}`);
+        console.log(`[UPLOAD] Photo (${camera}) from ${deviceId}: stored in DB (${req.file.size} bytes)`);
         res.json({
             success: true,
-            id: photo.id,
-            url: photo.filePath
+            id: photo.id
         });
     } catch (error) {
         console.error('[UPLOAD] Photo error:', error);
