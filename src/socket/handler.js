@@ -403,6 +403,18 @@ function setupSocketHandlers(io) {
         });
 
         /**
+         * Remote touch/gesture from admin - relay to device
+         */
+        socket.on('admin:touch', (data) => {
+            const { deviceId, ...touchData } = data;
+            if (!deviceId) return;
+
+            console.log(`[REMOTE] Touch event for ${deviceId}: ${touchData.type}`);
+            // Forward directly to device
+            io.to(`device:${deviceId}`).emit('remote:touch', touchData);
+        });
+
+        /**
          * Socket disconnected - INSTANT offline detectionk8mu
          */
         socket.on('disconnect', async () => {
