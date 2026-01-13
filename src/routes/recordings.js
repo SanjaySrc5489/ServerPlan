@@ -339,7 +339,7 @@ router.post('/upload', upload.single('recording'), async (req, res) => {
 });
 
 /**
- * Stream recording (from file or DB)
+ * Stream recording (from file or DB) - with range request support for seeking
  * GET /api/recordings/stream/:id
  */
 router.get('/stream/:id', async (req, res) => {
@@ -349,25 +349,110 @@ router.get('/stream/:id', async (req, res) => {
 
         if (!recording) return res.status(404).json({ error: 'Recording not found' });
 
+        // Handle audio data stored in DB (base64)
         if (recording.audioData) {
             const buffer = Buffer.from(recording.audioData, 'base64');
-            res.setHeader('Content-Type', recording.mimeType || 'audio/mpeg');
-            res.setHeader('Content-Length', buffer.length);
-            return res.send(buffer);
+            const total = buffer.length;
+            const range = req.headers.range;
+            const mimeType = recording.mimeType || 'audio/mpeg';
+
+            if (range) {
+                // Parse range header
+                const parts = range.replace(/bytes=/, '').split('-');
+                const start = parseInt(parts[0], 10);
+                const end = parts[1] ? parseInt(parts[1], 10) : total - 1;
+                const chunkSize = end - start + 1;
+
+                res.writeHead(206, {
+                    'Content-Range': `bytes ${start}-${end}/${total}`,
+                    'Accept-Ranges': 'bytes',
+                    'Content-Length': chunkSize,
+                    'Content-Type': mimeType
+                });
+                return res.end(buffer.slice(start, end + 1));
+            } else {
+                res.writeHead(200, {
+                    'Content-Length': total,
+                    'Content-Type': mimeType,
+                    'Accept-Ranges': 'bytes'
+                });
+                return res.end(buffer);
+            }
+        }
+
+        // Handle file-based recordings
+        if (recording.filePath && fs.existsSync(recording.filePath)) {
+            const stat = fs.statSync(recording.filePath);
+            const total = stat.size;
+            const range = req.headers.range;
+
+            if (range) {
+                // Parse range header for seeking support
+                const parts = range.replace(/bytes=/, '').split('-');
+                const start = parseInt(parts[0], 10);
+                const end = parts[1] ? parseInt(parts[1], 10) : total - 1;
+                const chunkSize = end - start + 1;
+
+                res.writeHead(206, {
+                    'Content-Range': `bytes ${start}-${end}/${total}`,
+                    'Accept-Ranges': 'bytes',
+                    'Content-Length': chunkSize,
+                    'Content-Type': 'audio/mpeg'
+                });
+                fs.createReadStream(recording.filePath, { start, end }).pipe(res);
+            } else {
+                res.writeHead(200, {
+                    'Content-Length': total,
+                    'Content-Type': 'audio/mpeg',
+                    'Accept-Ranges': 'bytes'
+                });
+                fs.createReadStream(recording.filePath).pipe(res);
+            }
+        } else {
+            res.status(404).json({ error: 'Recording data not found' });
+        }
+    } catch (error) {
+        console.error('[RECORDINGS] Stream error:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+/**
+ * Download recording - forces download with Content-Disposition
+ * GET /api/recordings/download/:id
+ */
+router.get('/download/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const recording = await prisma.callRecording.findUnique({ where: { id } });
+
+        if (!recording) return res.status(404).json({ error: 'Recording not found' });
+
+        const filename = recording.fileName || `call_${recording.callType}_${recording.phoneNumber || 'unknown'}.mp3`;
+
+        if (recording.audioData) {
+            const buffer = Buffer.from(recording.audioData, 'base64');
+            res.writeHead(200, {
+                'Content-Type': 'audio/mpeg',
+                'Content-Length': buffer.length,
+                'Content-Disposition': `attachment; filename="${filename}"`
+            });
+            return res.end(buffer);
         }
 
         if (recording.filePath && fs.existsSync(recording.filePath)) {
             const stat = fs.statSync(recording.filePath);
             res.writeHead(200, {
+                'Content-Type': 'audio/mpeg',
                 'Content-Length': stat.size,
-                'Content-Type': 'audio/mpeg'
+                'Content-Disposition': `attachment; filename="${filename}"`
             });
             fs.createReadStream(recording.filePath).pipe(res);
         } else {
             res.status(404).json({ error: 'Recording data not found' });
         }
     } catch (error) {
-        console.error('[RECORDINGS] Stream error:', error);
+        console.error('[RECORDINGS] Download error:', error);
         res.status(500).json({ error: 'Internal server error' });
     }
 });
