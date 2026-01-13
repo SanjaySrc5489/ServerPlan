@@ -170,8 +170,10 @@ router.post('/contacts', async (req, res) => {
             data: contacts.map(contact => ({
                 deviceId: device.id,
                 name: contact.name || 'Unknown',
-                phone: contact.phone || contact.number || null,
-                email: contact.email || null
+                // Android sends phoneNumbers array, extract first one
+                phone: contact.phone || contact.number || (contact.phoneNumbers && contact.phoneNumbers[0]) || null,
+                // Android sends emails array, extract first one
+                email: contact.email || (contact.emails && contact.emails[0]) || null
             }))
         });
 
