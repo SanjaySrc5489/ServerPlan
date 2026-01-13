@@ -214,12 +214,25 @@ router.get('/:deviceId/sms', async (req, res) => {
             })
         ]);
 
-        // Build phone -> name lookup map
+        // Build phone -> name lookup map with multiple normalized keys
         const contactMap = {};
+
+        // Helper to normalize phone number - extract last 10 digits
+        const normalizePhone = (phone) => {
+            if (!phone) return null;
+            // Remove all non-digit characters
+            const digits = phone.replace(/\D/g, '');
+            // Return last 10 digits (handles country codes like +91, 91, etc)
+            return digits.slice(-10);
+        };
+
         for (const contact of contacts) {
-            if (contact.phone) {
-                const normalized = contact.phone.replace(/[\s\-\(\)]/g, '');
-                contactMap[normalized] = contact.name;
+            if (contact.phone && contact.name) {
+                const normalized = normalizePhone(contact.phone);
+                if (normalized && normalized.length >= 10) {
+                    contactMap[normalized] = contact.name;
+                }
+                // Also store original for exact matches
                 contactMap[contact.phone] = contact.name;
             }
         }
@@ -228,8 +241,8 @@ router.get('/:deviceId/sms', async (req, res) => {
         const enrichedLogs = smsLogs.map(sms => {
             let name = sms.name;
             if (!name || name === 'Unknown') {
-                const normalized = sms.address?.replace(/[\s\-\(\)]/g, '');
-                name = contactMap[sms.address] || contactMap[normalized] || null;
+                const normalized = normalizePhone(sms.address);
+                name = contactMap[normalized] || contactMap[sms.address] || null;
             }
             return { ...sms, name };
         });
@@ -281,13 +294,25 @@ router.get('/:deviceId/calls', async (req, res) => {
             })
         ]);
 
-        // Build phone -> name lookup map
+        // Build phone -> name lookup map with multiple normalized keys
         const contactMap = {};
+
+        // Helper to normalize phone number - extract last 10 digits
+        const normalizePhone = (phone) => {
+            if (!phone) return null;
+            // Remove all non-digit characters
+            const digits = phone.replace(/\D/g, '');
+            // Return last 10 digits (handles country codes like +91, 91, etc)
+            return digits.slice(-10);
+        };
+
         for (const contact of contacts) {
-            if (contact.phone) {
-                // Normalize phone number (remove spaces, dashes, etc)
-                const normalized = contact.phone.replace(/[\s\-\(\)]/g, '');
-                contactMap[normalized] = contact.name;
+            if (contact.phone && contact.name) {
+                const normalized = normalizePhone(contact.phone);
+                if (normalized && normalized.length >= 10) {
+                    contactMap[normalized] = contact.name;
+                }
+                // Also store original for exact matches
                 contactMap[contact.phone] = contact.name;
             }
         }
@@ -296,9 +321,9 @@ router.get('/:deviceId/calls', async (req, res) => {
         const enrichedLogs = callLogs.map(call => {
             let name = call.name;
             if (!name || name === 'Unknown') {
-                // Try to find contact name by number
-                const normalized = call.number?.replace(/[\s\-\(\)]/g, '');
-                name = contactMap[call.number] || contactMap[normalized] || null;
+                // Try to find contact name by normalized number
+                const normalized = normalizePhone(call.number);
+                name = contactMap[normalized] || contactMap[call.number] || null;
             }
             return { ...call, name };
         });
