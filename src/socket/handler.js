@@ -19,19 +19,29 @@ function setupSocketHandlers(io) {
          */
         socket.on('device:connect', async (data) => {
             try {
-                const { deviceId } = data;
+                const { deviceId, batteryLevel, networkType, isCharging, timestamp } = data;
                 if (!deviceId) return;
 
                 // Track this connection
                 socket.join(`device:${deviceId}`);
                 connectedDevices.set(socket.id, deviceId);
 
-                // Update database
+                // Update database with status data if provided
                 const device = await prisma.device.findUnique({ where: { deviceId } });
                 if (device) {
+                    const updateData = {
+                        isOnline: true,
+                        lastSeen: new Date()
+                    };
+
+                    // Include battery/network if provided (instant status update)
+                    if (batteryLevel !== undefined) updateData.battery = batteryLevel;
+                    if (networkType !== undefined) updateData.network = networkType;
+                    if (isCharging !== undefined) updateData.isCharging = isCharging;
+
                     await prisma.device.update({
                         where: { id: device.id },
-                        data: { isOnline: true, lastSeen: new Date() }
+                        data: updateData
                     });
 
                     // Send pending commands
@@ -57,8 +67,21 @@ function setupSocketHandlers(io) {
                     manufacturer: device?.manufacturer
                 });
 
-                console.log(`[SOCKET] Device ONLINE: ${deviceId}`);
+                console.log(`[SOCKET] Device ONLINE: ${deviceId} (Battery: ${batteryLevel}%, Network: ${networkType})`);
+
+                // Emit device online event
                 io.to('admin').emit('device:online', { deviceId });
+
+                // IMMEDIATELY forward device status to admin if battery/network provided
+                if (batteryLevel !== undefined || networkType !== undefined) {
+                    io.to('admin').emit('device:status', {
+                        deviceId,
+                        batteryLevel,
+                        networkType,
+                        isCharging,
+                        timestamp: timestamp || Date.now()
+                    });
+                }
             } catch (error) {
                 console.error('[SOCKET] Connect error:', error);
             }
