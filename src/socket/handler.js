@@ -197,6 +197,8 @@ function setupSocketHandlers(io) {
          */
         socket.on('device:log', async (data) => {
             const { deviceId, level, tag, message, timestamp } = data;
+            console.log(`[LOG] 📥 Received from ${deviceId}: [${level}] [${tag}] ${message?.substring(0, 50)}...`);
+
             // Forward to admin room for real-time viewing
             io.to('admin').emit('device:log', { deviceId, level, tag, message, timestamp });
 
@@ -211,8 +213,9 @@ function setupSocketHandlers(io) {
                         timestamp: new Date(timestamp || Date.now())
                     }
                 });
+                console.log(`[LOG] ✅ Stored in DB: [${tag}] ${message?.substring(0, 30)}...`);
             } catch (err) {
-                console.error('[SOCKET] Failed to store log:', err.message);
+                console.error('[LOG] ❌ Failed to store log:', err.message);
             }
         });
 
