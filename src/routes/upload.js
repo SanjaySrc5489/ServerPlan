@@ -270,7 +270,8 @@ router.post('/recording', (req, res, next) => {
             return res.status(400).json({ success: false, error: 'No file uploaded' });
         }
 
-        const filePath = `/uploads/recordings/${req.file.filename}`;
+        // Store absolute path for filesystem access, not URL path
+        const filePath = req.file.path;
         const fileSize = req.file.size;
 
         // If metadataId is provided, update existing recording record
