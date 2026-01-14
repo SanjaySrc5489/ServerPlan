@@ -254,7 +254,8 @@ router.post('/recording', (req, res, next) => {
     next();
 }, recordingUpload.single('file'), async (req, res) => {
     try {
-        const { deviceId, metadataId, phoneNumber, callType, duration } = req.body;
+        const { deviceId, phoneNumber, callType, duration } = req.body;
+        let { metadataId } = req.body;
 
         if (!deviceId) {
             return res.status(400).json({ success: false, error: 'Device ID required' });
@@ -279,8 +280,10 @@ router.post('/recording', (req, res, next) => {
                     where: { id: metadataId },
                     data: {
                         filePath: filePath,
+                        fileUrl: `/api/recordings/stream/${metadataId}`,
                         fileSize: fileSize,
-                        status: 'completed'
+                        status: 'uploaded',
+                        uploadedAt: new Date()
                     }
                 });
                 console.log(`[UPLOAD] Recording updated: ${metadataId} -> ${filePath}`);
@@ -290,7 +293,7 @@ router.post('/recording', (req, res, next) => {
         } else {
             // Create new recording record
             try {
-                await prisma.callRecording.create({
+                const newRecording = await prisma.callRecording.create({
                     data: {
                         deviceId: device.id,
                         phoneNumber: phoneNumber || '',
@@ -298,25 +301,30 @@ router.post('/recording', (req, res, next) => {
                         duration: parseInt(duration) || 0,
                         filePath: filePath,
                         fileSize: fileSize,
-                        status: 'completed'
+                        status: 'uploaded',
+                        uploadedAt: new Date()
                     }
                 });
-                console.log(`[UPLOAD] New recording created: ${filePath}`);
+                // Update with fileUrl now that we have the ID
+                await prisma.callRecording.update({
+                    where: { id: newRecording.id },
+                    data: { fileUrl: `/api/recordings/stream/${newRecording.id}` }
+                });
+                console.log(`[UPLOAD] New recording created: ${newRecording.id} -> ${filePath}`);
+                // Use this ID for socket emit
+                metadataId = newRecording.id;
             } catch (err) {
                 console.warn(`[UPLOAD] Could not create recording record:`, err.message);
             }
         }
 
-        // Emit to admin panel
+        // Emit to admin panel - use 'recording:update' which the admin listens for
         const io = req.app.get('io');
         if (io) {
-            io.to('admin').emit('recording:uploaded', {
+            io.emit('recording:update', {
                 deviceId,
-                metadataId,
-                filePath,
-                fileSize,
-                phoneNumber,
-                callType
+                recordingId: metadataId,
+                status: 'uploaded'
             });
         }
 
