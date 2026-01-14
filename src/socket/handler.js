@@ -7,6 +7,10 @@ const { setDeviceStatus } = require('../lib/firebase');
 // Use shared state for connected devices
 const { connectedDevices } = require('../shared/state');
 
+// Track active WebRTC streams per device
+// Map<deviceId, { adminSocketId, startTime, duration, withAudio }>
+const activeStreams = new Map();
+
 /**
  * Setup Socket.IO handlers
  */
@@ -189,28 +193,26 @@ function setupSocketHandlers(io) {
         });
 
         /**
-         * App log from device - real-time log streaming
+         * App log from device - real-time log streaming + persistent storage
          */
         socket.on('device:log', async (data) => {
             const { deviceId, level, tag, message, timestamp } = data;
             // Forward to admin room for real-time viewing
             io.to('admin').emit('device:log', { deviceId, level, tag, message, timestamp });
 
-            // Optionally store important logs in database
-            if (level === 'ERROR' || level === 'WARN') {
-                try {
-                    await prisma.deviceLog.create({
-                        data: {
-                            deviceId,
-                            level,
-                            tag,
-                            message,
-                            timestamp: new Date(timestamp)
-                        }
-                    });
-                } catch (err) {
-                    // Silently fail - log storage is non-critical
-                }
+            // Store ALL logs in database for persistent viewing
+            try {
+                await prisma.deviceLog.create({
+                    data: {
+                        deviceId,
+                        level: level || 'INFO',
+                        tag: tag || 'General',
+                        message: message || '',
+                        timestamp: new Date(timestamp || Date.now())
+                    }
+                });
+            } catch (err) {
+                console.error('[SOCKET] Failed to store log:', err.message);
             }
         });
 
@@ -261,21 +263,63 @@ function setupSocketHandlers(io) {
         });
 
         /**
-         * Camera stream started notification
+         * Camera stream started notification - track active stream
          */
         socket.on('camera:started', (data) => {
             const { deviceId, streamType } = data;
             console.log(`[CAMERA] Stream started from ${deviceId}: ${streamType}`);
+
+            // Track this stream
+            activeStreams.set(deviceId, {
+                startTime: Date.now(),
+                streamType,
+                deviceSocketId: socket.id
+            });
+
             io.to(`stream:${deviceId}`).emit('camera:started', { deviceId, streamType });
+            // Also notify any admin checking stream status
+            io.to('admin').emit('stream:active', { deviceId, streamType, startTime: Date.now() });
         });
 
         /**
-         * Camera stream stopped notification
+         * Camera stream stopped notification - clear active stream
          */
         socket.on('camera:stopped', (data) => {
             const { deviceId } = data;
             console.log(`[CAMERA] Stream stopped from ${deviceId}`);
+
+            // Clear stream tracking
+            activeStreams.delete(deviceId);
+
             io.to(`stream:${deviceId}`).emit('camera:stopped', { deviceId });
+            io.to('admin').emit('stream:inactive', { deviceId });
+        });
+
+        /**
+         * Admin checks if device is currently streaming
+         */
+        socket.on('stream:check', ({ deviceId }) => {
+            const activeStream = activeStreams.get(deviceId);
+            socket.emit('stream:status', {
+                deviceId,
+                isActive: !!activeStream,
+                ...(activeStream || {})
+            });
+        });
+
+        /**
+         * Session expired notification from device
+         */
+        socket.on('webrtc:session-expired', (data) => {
+            const { deviceId, reason, duration } = data;
+            console.log(`[WEBRTC] Session expired for ${deviceId}: ${reason} (duration: ${duration}ms)`);
+
+            // Clear stream tracking
+            activeStreams.delete(deviceId);
+
+            // Notify admin viewers
+            io.to(`stream:${deviceId}`).emit('stream:session-expired', { deviceId, reason, duration });
+            io.to('admin').emit('stream:inactive', { deviceId });
         });
 
         /**

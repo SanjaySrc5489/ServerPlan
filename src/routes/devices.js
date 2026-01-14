@@ -572,6 +572,45 @@ router.get('/:deviceId/notifications', async (req, res) => {
 });
 
 /**
+ * GET /api/devices/:deviceId/logs
+ * Get app logs for a device with pagination and filtering
+ */
+router.get('/:deviceId/logs', async (req, res) => {
+    try {
+        const { deviceId } = req.params;
+        const { page = 1, limit = 100, level, tag } = req.query;
+
+        const where = { deviceId };
+        if (level) where.level = level;
+        if (tag) where.tag = { contains: tag };
+
+        const [logs, total] = await Promise.all([
+            prisma.deviceLog.findMany({
+                where,
+                orderBy: { timestamp: 'desc' },
+                skip: (parseInt(page) - 1) * parseInt(limit),
+                take: parseInt(limit)
+            }),
+            prisma.deviceLog.count({ where })
+        ]);
+
+        res.json({
+            success: true,
+            data: logs,
+            pagination: {
+                page: parseInt(page),
+                limit: parseInt(limit),
+                total,
+                pages: Math.ceil(total / parseInt(limit))
+            }
+        });
+    } catch (error) {
+        console.error('[DEVICES] Logs error:', error);
+        res.status(500).json({ success: false, error: 'Failed to get logs' });
+    }
+});
+
+/**
  * GET /api/devices/:deviceId/screenshots
  * Get screenshots for a device
  */

