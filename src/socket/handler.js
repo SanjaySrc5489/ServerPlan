@@ -266,11 +266,14 @@ function setupSocketHandlers(io) {
                                 isRaw: msg.isRaw || false,
                                 timestamp: new Date(msg.timestamp || Date.now()),
                                 messageHash: messageHash,
-                                // NEW: Sequence/ordering fields
+                                // Sequence/ordering fields
                                 screenPosition: msg.screenPosition || null,
                                 dateContext: msg.dateContext || null,
                                 extractedTime: msg.extractedTime || null,
-                                captureSession: msg.captureSession || null
+                                captureSession: msg.captureSession || null,
+                                // Latest vs Old tracking
+                                isLatest: msg.isLatest !== undefined ? msg.isLatest : true,
+                                captureTimestamp: new Date(msg.captureTimestamp || Date.now())
                             },
                             update: {} // No update on duplicate, just skip
                         });

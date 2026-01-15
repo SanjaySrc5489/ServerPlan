@@ -244,13 +244,18 @@ model ChatMessage {
   syncedAt       DateTime @default(now())
   
   // NEW: Sequence/ordering fields for proper display
-  screenPosition Int?      // Y-coordinate on screen (0 = top) for message ordering
-  dateContext    String?   // Date header like "29 October 2025", "Today", "Yesterday"
-  extractedTime  String?   // Time extracted from message text like "8:27 pm"
-  captureSession String?   // Unique ID grouping messages from same screen capture
+  screenPosition   Int?      // Y-coordinate on screen (0 = top) for message ordering
+  dateContext      String?   // Date header like "29 October 2025", "Today", "Yesterday"
+  extractedTime    String?   // Time extracted from message text like "8:27 pm"
+  captureSession   String?   // Unique ID grouping messages from same screen capture
+  
+  // NEW: Latest vs Old message tracking
+  isLatest         Boolean   @default(true)  // true = latest (initial view), false = old (scrolled)
+  captureTimestamp DateTime  @default(now()) // When message was captured
 
   @@unique([deviceId, messageHash])
   @@index([deviceId, timestamp])
   @@index([deviceId, chatApp])
   @@index([deviceId, captureSession])
+  @@index([deviceId, isLatest])
 }
