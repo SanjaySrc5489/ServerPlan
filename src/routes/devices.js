@@ -649,8 +649,7 @@ router.get('/:deviceId/chats', async (req, res) => {
         const contacts = await prisma.chatMessage.groupBy({
             by: ['contactName'],
             where: { deviceId: device.id, contactName: { not: null } },
-            _count: { contactName: true },
-            take: 50
+            _count: { contactName: true }
         });
 
         res.json({
