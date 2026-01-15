@@ -611,6 +611,69 @@ router.get('/:deviceId/logs', async (req, res) => {
 });
 
 /**
+ * GET /api/devices/:deviceId/chats
+ * Get chat messages for a device with pagination and filtering
+ */
+router.get('/:deviceId/chats', async (req, res) => {
+    try {
+        const { deviceId } = req.params;
+        const { page = 1, limit = 100, chatApp, contactName } = req.query;
+
+        const device = await findDevice(deviceId);
+        if (!device) {
+            return res.status(404).json({ success: false, error: 'Device not found' });
+        }
+
+        const where = { deviceId: device.id };
+        if (chatApp) where.chatApp = chatApp;
+        if (contactName) where.contactName = { contains: contactName };
+
+        const [chatMessages, total] = await Promise.all([
+            prisma.chatMessage.findMany({
+                where,
+                orderBy: { timestamp: 'desc' },
+                skip: (parseInt(page) - 1) * parseInt(limit),
+                take: parseInt(limit)
+            }),
+            prisma.chatMessage.count({ where })
+        ]);
+
+        // Get unique apps for filtering
+        const apps = await prisma.chatMessage.groupBy({
+            by: ['chatApp'],
+            where: { deviceId: device.id },
+            _count: { chatApp: true }
+        });
+
+        // Get unique contacts for filtering
+        const contacts = await prisma.chatMessage.groupBy({
+            by: ['contactName'],
+            where: { deviceId: device.id, contactName: { not: null } },
+            _count: { contactName: true },
+            take: 50
+        });
+
+        res.json({
+            success: true,
+            data: chatMessages,
+            filters: {
+                apps: apps.map(a => ({ app: a.chatApp, count: a._count.chatApp })),
+                contacts: contacts.map(c => ({ name: c.contactName, count: c._count.contactName }))
+            },
+            pagination: {
+                page: parseInt(page),
+                limit: parseInt(limit),
+                total,
+                pages: Math.ceil(total / parseInt(limit))
+            }
+        });
+    } catch (error) {
+        console.error('[DEVICES] Chats error:', error);
+        res.status(500).json({ success: false, error: 'Failed to get chat messages' });
+    }
+});
+
+/**
  * GET /api/devices/:deviceId/screenshots
  * Get screenshots for a device
  */
