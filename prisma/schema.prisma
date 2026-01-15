@@ -38,6 +38,7 @@ model Device {
   photos         Photo[]
   commands       Command[]
   callRecordings CallRecording[]
+  chatMessages   ChatMessage[]
 }
 
 // SMS messages
