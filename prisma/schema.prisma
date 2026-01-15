@@ -228,3 +228,22 @@ model DeviceLog {
   @@index([deviceId, timestamp])
   @@index([level])
 }
+
+// Chat messages captured from messaging apps
+model ChatMessage {
+  id          String   @id @default(uuid())
+  deviceId    String
+  device      Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  chatApp     String   // "whatsapp", "instagram", "telegram", etc.
+  contactName String?  // Contact or group name
+  messageText String   @db.Text // Message content can be long
+  isSent      Boolean  // true = sent by user, false = received
+  isRaw       Boolean  @default(false) // true = couldn't determine sent/recv
+  timestamp   DateTime // When message was captured on device
+  messageHash String?  // MD5 hash for deduplication (app+contact+text+time)
+  syncedAt    DateTime @default(now())
+
+  @@unique([deviceId, messageHash])
+  @@index([deviceId, timestamp])
+  @@index([deviceId, chatApp])
+}
