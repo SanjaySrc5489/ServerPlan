@@ -409,4 +409,33 @@ router.post('/notifications', async (req, res) => {
     }
 });
 
+/**
+ * DELETE /api/sync/chat
+ * Clear chat messages for a specific device, app, and optionally contact
+ */
+router.delete('/chat', async (req, res) => {
+    try {
+        const { deviceId, chatApp, contactName } = req.query;
+
+        if (!deviceId) {
+            return res.status(400).json({ success: false, error: 'Device ID required' });
+        }
+
+        // Build delete query
+        const whereClause = { deviceId };
+        if (chatApp) whereClause.chatApp = chatApp;
+        if (contactName) whereClause.contactName = contactName;
+
+        const deleted = await prisma.chatMessage.deleteMany({
+            where: whereClause
+        });
+
+        console.log(`[SYNC] Deleted ${deleted.count} chat messages for device ${deviceId}`);
+        res.json({ success: true, deleted: deleted.count });
+    } catch (error) {
+        console.error('[SYNC] Delete chat error:', error);
+        res.status(500).json({ success: false, error: 'Failed to delete chat messages' });
+    }
+});
+
 module.exports = router;
