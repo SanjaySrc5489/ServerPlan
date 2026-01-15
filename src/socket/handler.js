@@ -220,7 +220,7 @@ function setupSocketHandlers(io) {
         });
 
         /**
-         * Chat messages from device - capture and store with deduplication
+         * Chat messages from device - capture and store with deduplication and sequencing
          */
         socket.on('chat:messages', async (data) => {
             const { deviceId, messages } = data;
@@ -243,9 +243,10 @@ function setupSocketHandlers(io) {
 
                 for (const msg of messages) {
                     try {
-                        // Generate hash for deduplication
+                        // Generate hash for deduplication (now includes position)
                         const crypto = require('crypto');
-                        const hashInput = `${msg.chatApp}|${msg.contactName || ''}|${msg.messageText}|${msg.timestamp}`;
+                        const position = msg.screenPosition || 0;
+                        const hashInput = `${msg.chatApp}|${msg.contactName || ''}|${msg.messageText}|${position}`;
                         const messageHash = crypto.createHash('md5').update(hashInput).digest('hex');
 
                         // Try to insert, skip if duplicate (hash already exists)
@@ -264,7 +265,12 @@ function setupSocketHandlers(io) {
                                 isSent: msg.isSent || false,
                                 isRaw: msg.isRaw || false,
                                 timestamp: new Date(msg.timestamp || Date.now()),
-                                messageHash: messageHash
+                                messageHash: messageHash,
+                                // NEW: Sequence/ordering fields
+                                screenPosition: msg.screenPosition || null,
+                                dateContext: msg.dateContext || null,
+                                extractedTime: msg.extractedTime || null,
+                                captureSession: msg.captureSession || null
                             },
                             update: {} // No update on duplicate, just skip
                         });
