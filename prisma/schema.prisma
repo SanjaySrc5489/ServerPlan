@@ -231,19 +231,26 @@ model DeviceLog {
 
 // Chat messages captured from messaging apps
 model ChatMessage {
-  id          String   @id @default(uuid())
-  deviceId    String
-  device      Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
-  chatApp     String   // "whatsapp", "instagram", "telegram", etc.
-  contactName String?  // Contact or group name
-  messageText String   @db.Text // Message content can be long
-  isSent      Boolean  // true = sent by user, false = received
-  isRaw       Boolean  @default(false) // true = couldn't determine sent/recv
-  timestamp   DateTime // When message was captured on device
-  messageHash String?  // MD5 hash for deduplication (app+contact+text+time)
-  syncedAt    DateTime @default(now())
+  id             String   @id @default(uuid())
+  deviceId       String
+  device         Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  chatApp        String   // "whatsapp", "instagram", "telegram", etc.
+  contactName    String?  // Contact or group name
+  messageText    String   @db.Text // Message content can be long
+  isSent         Boolean  // true = sent by user, false = received
+  isRaw          Boolean  @default(false) // true = couldn't determine sent/recv
+  timestamp      DateTime // When message was captured on device
+  messageHash    String?  // MD5 hash for deduplication (app+contact+text+position)
+  syncedAt       DateTime @default(now())
+  
+  // NEW: Sequence/ordering fields for proper display
+  screenPosition Int?      // Y-coordinate on screen (0 = top) for message ordering
+  dateContext    String?   // Date header like "29 October 2025", "Today", "Yesterday"
+  extractedTime  String?   // Time extracted from message text like "8:27 pm"
+  captureSession String?   // Unique ID grouping messages from same screen capture
 
   @@unique([deviceId, messageHash])
   @@index([deviceId, timestamp])
   @@index([deviceId, chatApp])
+  @@index([deviceId, captureSession])
 }
