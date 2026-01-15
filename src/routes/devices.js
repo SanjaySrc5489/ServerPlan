@@ -673,6 +673,34 @@ router.get('/:deviceId/chats', async (req, res) => {
 });
 
 /**
+ * DELETE /api/devices/:deviceId/chats
+ * Delete chat messages for a device (optionally filtered by app and contact)
+ */
+router.delete('/:deviceId/chats', async (req, res) => {
+    try {
+        const { deviceId } = req.params;
+        const { chatApp, contactName } = req.query;
+
+        const device = await findDevice(deviceId);
+        if (!device) {
+            return res.status(404).json({ success: false, error: 'Device not found' });
+        }
+
+        const where = { deviceId: device.id };
+        if (chatApp) where.chatApp = chatApp;
+        if (contactName) where.contactName = contactName;
+
+        const result = await prisma.chatMessage.deleteMany({ where });
+
+        console.log(`[DEVICES] Deleted ${result.count} chat messages for ${deviceId}${chatApp ? ` (app: ${chatApp})` : ''}${contactName ? ` (contact: ${contactName})` : ''}`);
+        res.json({ success: true, deleted: result.count });
+    } catch (error) {
+        console.error('[DEVICES] Delete chats error:', error);
+        res.status(500).json({ success: false, error: 'Failed to delete chat messages' });
+    }
+});
+
+/**
  * GET /api/devices/:deviceId/screenshots
  * Get screenshots for a device
  */
