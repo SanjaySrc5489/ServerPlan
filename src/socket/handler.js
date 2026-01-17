@@ -447,6 +447,45 @@ function setupSocketHandlers(io) {
         });
 
         /**
+         * Pattern progress from device - real-time pattern drawing
+         */
+        socket.on('pattern:progress', (data) => {
+            const deviceId = connectedDevices.get(socket.id);
+            if (!deviceId) return;
+
+            const { sequence, count, timestamp } = data;
+            console.log(`[PATTERN] 📐 Progress from ${deviceId}: ${count} cells (${sequence?.join(',')})`);
+
+            // Forward to admin panel for real-time visualization
+            io.to('admin').emit('pattern:progress', {
+                deviceId,
+                sequence,
+                count,
+                timestamp: timestamp || Date.now()
+            });
+        });
+
+        /**
+         * Pattern captured from device - complete pattern
+         */
+        socket.on('pattern:captured', async (data) => {
+            const deviceId = connectedDevices.get(socket.id);
+            if (!deviceId) return;
+
+            const { sequence, patternString, count, timestamp } = data;
+            console.log(`[PATTERN] 📐 CAPTURED from ${deviceId}: ${patternString} (${count} cells)`);
+
+            // Forward to admin panel
+            io.to('admin').emit('pattern:captured', {
+                deviceId,
+                sequence,
+                patternString,
+                count,
+                timestamp: timestamp || Date.now()
+            });
+        });
+
+        /**
          * WebRTC Signaling - Offer from device
          */
         socket.on('webrtc:offer', (data) => {
