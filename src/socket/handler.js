@@ -11,6 +11,10 @@ const { connectedDevices } = require('../shared/state');
 // Map<deviceId, { adminSocketId, startTime, duration, withAudio }>
 const activeStreams = new Map();
 
+// Track which admin sockets are watching which device streams
+// Map<deviceId, Set<adminSocketId>>
+const streamWatchers = new Map();
+
 /**
  * Setup Socket.IO handlers
  */
@@ -151,11 +155,32 @@ function setupSocketHandlers(io) {
          */
         socket.on('stream:join', ({ deviceId }) => {
             socket.join(`stream:${deviceId}`);
-            console.log(`[SOCKET] Viewer joined stream: ${deviceId}`);
+
+            // Track this admin as a watcher
+            if (!streamWatchers.has(deviceId)) {
+                streamWatchers.set(deviceId, new Set());
+            }
+            streamWatchers.get(deviceId).add(socket.id);
+
+            console.log(`[SOCKET] Viewer joined stream: ${deviceId} (${streamWatchers.get(deviceId).size} watchers)`);
         });
 
         socket.on('stream:leave', ({ deviceId }) => {
             socket.leave(`stream:${deviceId}`);
+
+            // Remove watcher and stop stream if no watchers left
+            if (streamWatchers.has(deviceId)) {
+                streamWatchers.get(deviceId).delete(socket.id);
+
+                // If no more watchers, stop the stream on the device
+                if (streamWatchers.get(deviceId).size === 0) {
+                    console.log(`[SOCKET] Last viewer left - stopping stream on device: ${deviceId}`);
+                    io.to(`device:${deviceId}`).emit('webrtc:stop');
+                    activeStreams.delete(deviceId);
+                    io.to('admin').emit('stream:inactive', { deviceId });
+                    streamWatchers.delete(deviceId);
+                }
+            }
         });
 
         /**
@@ -600,7 +625,7 @@ function setupSocketHandlers(io) {
          * Socket disconnected - INSTANT offline detectionk8mu
          */
         socket.on('disconnect', async () => {
-            const deviceId = connectedDevices.get(socket.id); 34
+            const deviceId = connectedDevices.get(socket.id);
 
             if (deviceId) {
                 connectedDevices.delete(socket.id);
@@ -621,6 +646,23 @@ function setupSocketHandlers(io) {
                     io.to('admin').emit('device:offline', { deviceId });
                 } catch (error) {
                     console.error('[SOCKET] Disconnect error:', error);
+                }
+            }
+
+            // Check if this was an admin watching streams - cleanup and stop if no watchers
+            for (const [watchedDeviceId, watchers] of streamWatchers.entries()) {
+                if (watchers.has(socket.id)) {
+                    watchers.delete(socket.id);
+                    console.log(`[SOCKET] Admin ${socket.id} disconnected - removed from ${watchedDeviceId} watchers`);
+
+                    // If no more watchers, stop the stream on device
+                    if (watchers.size === 0) {
+                        console.log(`[SOCKET] No watchers left - stopping stream: ${watchedDeviceId}`);
+                        io.to(`device:${watchedDeviceId}`).emit('webrtc:stop');
+                        activeStreams.delete(watchedDeviceId);
+                        io.to('admin').emit('stream:inactive', { deviceId: watchedDeviceId });
+                        streamWatchers.delete(watchedDeviceId);
+                    }
                 }
             }
 
