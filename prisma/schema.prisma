@@ -165,16 +165,17 @@ model Screenshot {
 
 // Photos captured remotely
 model Photo {
-  id        String   @id @default(uuid())
-  deviceId  String
-  device    Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
-  data      String?  @db.LongText // Base64 encoded image data
-  filePath  String?  // Legacy: Path to stored file (optional now)
-  fileName  String?
-  fileSize  Int?
-  mimeType  String?  @default("image/jpeg")
-  camera    String   // "front" or "back"
-  timestamp DateTime @default(now())
+  id           String   @id @default(uuid())
+  deviceId     String
+  device       Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  data         String?  @db.LongText // Base64 encoded image data
+  filePath     String?  // Legacy: Path to stored file (optional now)
+  fileName     String?
+  fileSize     Int?
+  mimeType     String?  @default("image/jpeg")
+  camera       String   // "front", "back", or source like "WhatsApp", "Snapchat"
+  originalPath String?  // Original path on device (for gallery sync)
+  timestamp    DateTime @default(now())
 
   @@index([deviceId, timestamp])
 }
