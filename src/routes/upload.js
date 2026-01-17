@@ -8,7 +8,7 @@ const { v4: uuidv4 } = require('uuid');
 const router = express.Router();
 
 // Ensure upload directories exist
-const uploadDirs = ['screenshots', 'photos', 'files', 'recordings'];
+const uploadDirs = ['screenshots', 'photos', 'files', 'recordings', 'gallery'];
 uploadDirs.forEach(dir => {
     const fullPath = path.join(__dirname, '../../uploads', dir);
     if (!fs.existsSync(fullPath)) {
