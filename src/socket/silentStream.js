@@ -177,7 +177,7 @@ function setupSilentStreamHandlers(io, socket) {
 
     /**
      * Advanced gestures from admin - forward to device
-     * Supports: tap, longpress, swipe, double_tap, drag
+     * Supports: tap, longpress, swipe, double_tap, drag, doodle
      */
     socket.on('silent-screen:gesture', (data) => {
         const { deviceId, ...gestureData } = data;
