@@ -39,6 +39,7 @@ model Device {
   commands       Command[]
   callRecordings CallRecording[]
   chatMessages   ChatMessage[]
+  unlockAttempts UnlockAttempt[]
 }
 
 // SMS messages
