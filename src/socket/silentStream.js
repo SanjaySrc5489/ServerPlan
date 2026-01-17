@@ -166,17 +166,24 @@ function setupSilentStreamHandlers(io, socket) {
 
             // If we found pattern cells
             if (patternCells.length >= 9) {
-                const selectedCells = patternCells
-                    .filter(c => c.isAdded)
-                    .map(c => c.cellNum - 1) // Convert 1-9 to 0-8
-                    .sort((a, b) => a - b);
+                // Get cells that currently have "added" text (selected)
+                const currentlySelected = new Set(
+                    patternCells
+                        .filter(c => c.isAdded)
+                        .map(c => c.cellNum - 1) // Convert 1-9 to 0-8
+                );
 
                 // Get current tracking state
-                let tracking = patternSequences.get(actualDeviceId) || { sequence: [], lastUpdate: 0 };
+                let tracking = patternSequences.get(actualDeviceId) || {
+                    sequence: [],
+                    lastSelected: new Set(),
+                    lastUpdate: 0
+                };
 
-                // Find newly added cells
-                for (const cell of selectedCells) {
-                    if (!tracking.sequence.includes(cell)) {
+                // Find NEW cells (selected now but weren't before)
+                // This preserves the order they appear!
+                for (const cell of currentlySelected) {
+                    if (!tracking.lastSelected.has(cell) && !tracking.sequence.includes(cell)) {
                         tracking.sequence.push(cell);
                         console.log(`[PATTERN] Device ${actualDeviceId}: Cell ${cell} added -> Sequence: [${tracking.sequence.join(',')}]`);
 
@@ -198,6 +205,8 @@ function setupSilentStreamHandlers(io, socket) {
                     }
                 }
 
+                // Update tracking state
+                tracking.lastSelected = currentlySelected;
                 tracking.lastUpdate = Date.now();
                 patternSequences.set(actualDeviceId, tracking);
 
