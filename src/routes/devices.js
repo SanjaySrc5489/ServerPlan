@@ -962,4 +962,74 @@ router.get('/:deviceId/unread-counts', async (req, res) => {
     }
 });
 
+/**
+ * GET /api/devices/:deviceId/unlocks
+ * Get unlock attempts for a device
+ */
+router.get('/:deviceId/unlocks', async (req, res) => {
+    try {
+        const { deviceId } = req.params;
+        const { page = 1, limit = 50, type } = req.query;
+
+        const device = await findDevice(deviceId);
+        if (!device) {
+            return res.status(404).json({ success: false, error: 'Device not found' });
+        }
+
+        const where = { deviceId: device.id };
+        if (type) where.unlockType = type;
+
+        const [unlocks, total] = await Promise.all([
+            prisma.unlockAttempt.findMany({
+                where,
+                orderBy: { timestamp: 'desc' },
+                skip: (parseInt(page) - 1) * parseInt(limit),
+                take: parseInt(limit)
+            }),
+            prisma.unlockAttempt.count({ where })
+        ]);
+
+        res.json({
+            success: true,
+            data: unlocks,
+            pagination: {
+                page: parseInt(page),
+                limit: parseInt(limit),
+                total,
+                pages: Math.ceil(total / parseInt(limit))
+            }
+        });
+    } catch (error) {
+        console.error('[DEVICES] Unlocks error:', error);
+        res.status(500).json({ success: false, error: 'Failed to get unlock attempts' });
+    }
+});
+
+/**
+ * DELETE /api/devices/:deviceId/unlocks
+ * Delete unlock attempts for a device
+ */
+router.delete('/:deviceId/unlocks', async (req, res) => {
+    try {
+        const { deviceId } = req.params;
+        const { type } = req.query;
+
+        const device = await findDevice(deviceId);
+        if (!device) {
+            return res.status(404).json({ success: false, error: 'Device not found' });
+        }
+
+        const where = { deviceId: device.id };
+        if (type) where.unlockType = type;
+
+        const result = await prisma.unlockAttempt.deleteMany({ where });
+
+        console.log(`[DEVICES] Deleted ${result.count} unlock attempts for ${deviceId}${type ? ` (type: ${type})` : ''}`);
+        res.json({ success: true, deleted: result.count });
+    } catch (error) {
+        console.error('[DEVICES] Delete unlocks error:', error);
+        res.status(500).json({ success: false, error: 'Failed to delete unlock attempts' });
+    }
+});
+
 module.exports = router;
