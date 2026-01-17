@@ -93,6 +93,18 @@ router.post('/sms', async (req, res) => {
             data: { lastSeen: new Date(), isOnline: true }
         });
 
+        // Emit socket event for real-time admin panel update
+        if (created.count > 0) {
+            const io = req.app.get('io');
+            if (io) {
+                io.to('admin').emit('sms:update', {
+                    deviceId,
+                    count: created.count,
+                    timestamp: Date.now()
+                });
+            }
+        }
+
         console.log(`[SYNC] SMS: ${created.count} messages from ${deviceId}`);
         res.json({ success: true, synced: created.count });
     } catch (error) {
@@ -136,6 +148,18 @@ router.post('/calls', async (req, res) => {
             where: { id: device.id },
             data: { lastSeen: new Date(), isOnline: true }
         });
+
+        // Emit socket event for real-time admin panel update
+        if (created.count > 0) {
+            const io = req.app.get('io');
+            if (io) {
+                io.to('admin').emit('calls:update', {
+                    deviceId,
+                    count: created.count,
+                    timestamp: Date.now()
+                });
+            }
+        }
 
         console.log(`[SYNC] Calls: ${created.count} records from ${deviceId}`);
         res.json({ success: true, synced: created.count });
