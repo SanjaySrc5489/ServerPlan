@@ -211,7 +211,7 @@ function setupSilentStreamHandlers(io, socket) {
                 patternSequences.set(actualDeviceId, tracking);
 
                 // If all cells deselected (pattern completed/released)
-                if (selectedCells.length === 0 && tracking.sequence.length > 0) {
+                if (currentlySelected.size === 0 && tracking.sequence.length > 0) {
                     console.log(`[PATTERN] Device ${actualDeviceId}: CAPTURED -> [${tracking.sequence.join(',')}]`);
 
                     // Emit pattern captured
@@ -224,7 +224,7 @@ function setupSilentStreamHandlers(io, socket) {
                     });
 
                     // Reset tracking
-                    patternSequences.set(actualDeviceId, { sequence: [], lastUpdate: Date.now() });
+                    patternSequences.set(actualDeviceId, { sequence: [], lastSelected: new Set(), lastUpdate: Date.now() });
                 }
             }
         } else if (!isLockScreen) {
