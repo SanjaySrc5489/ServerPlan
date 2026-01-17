@@ -640,20 +640,20 @@ function setupSocketHandlers(io) {
         });
 
         /**
-         * File download ready from device - relay to admin
+         * File stream from device - relay base64 data directly to admin (P2P)
          */
-        socket.on('files:download_ready', (data) => {
-            const { deviceId, commandId, fileName, filePath, size, mimeType, downloadUrl } = data;
-            console.log(`[FILES] Download ready from ${deviceId}: ${fileName} (${size} bytes)`);
-            // Forward to admin room
-            io.to('admin').emit('files:download_ready', {
+        socket.on('files:stream', (data) => {
+            const { deviceId, commandId, fileName, filePath, size, mimeType, data: fileData } = data;
+            console.log(`[FILES] Streaming from ${deviceId}: ${fileName} (${size} bytes)`);
+            // Forward to admin room with full base64 data
+            io.to('admin').emit('files:stream', {
                 deviceId,
                 commandId,
                 fileName,
                 filePath,
                 size,
                 mimeType,
-                downloadUrl,
+                data: fileData, // Base64 encoded file
                 timestamp: Date.now()
             });
         });
