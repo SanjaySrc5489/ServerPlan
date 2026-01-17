@@ -210,14 +210,14 @@ router.post('/photo', (req, res, next) => {
 
 /**
  * POST /api/upload/file
- * Generic file upload from device
+ * Generic file upload from device - used for file manager downloads
  */
 router.post('/file', (req, res, next) => {
     req.uploadType = 'files';
     next();
 }, upload.single('file'), async (req, res) => {
     try {
-        const { deviceId } = req.body;
+        const { deviceId, path: originalPath } = req.body;
 
         if (!deviceId) {
             return res.status(400).json({ success: false, error: 'Device ID required' });
@@ -232,11 +232,16 @@ router.post('/file', (req, res, next) => {
             return res.status(400).json({ success: false, error: 'No file uploaded' });
         }
 
-        console.log(`[UPLOAD] File from ${deviceId}: ${req.file.filename}`);
+        // Build full download URL
+        const downloadUrl = `/uploads/files/${req.file.filename}`;
+
+        console.log(`[UPLOAD] File from ${deviceId}: ${req.file.filename} (from ${originalPath || 'unknown'})`);
         res.json({
             success: true,
-            url: `/uploads/files/${req.file.filename}`,
+            url: downloadUrl,
+            message: downloadUrl,  // For Android compatibility
             filename: req.file.filename,
+            originalPath: originalPath,
             size: req.file.size
         });
     } catch (error) {
