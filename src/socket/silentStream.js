@@ -129,17 +129,11 @@ function setupSilentStreamHandlers(io, socket) {
             });
         }
 
-        // Build the exact payload being emitted to admin
-        const emitPayload = {
+        // Forward to all watchers
+        io.to(`silent-stream:${actualDeviceId}`).emit('silent-screen:update', {
             deviceId: actualDeviceId,
             ...treeData
-        };
-
-        // LOG EXACTLY WHAT ADMIN PANEL RECEIVES
-        console.log(`[SILENT:DATA] ${JSON.stringify(emitPayload)}`);
-
-        // Forward to all watchers
-        io.to(`silent-stream:${actualDeviceId}`).emit('silent-screen:update', emitPayload);
+        });
     });
 
     /**
