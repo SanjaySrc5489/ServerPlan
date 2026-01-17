@@ -155,11 +155,13 @@ router.post('/calls', async (req, res) => {
         if (created.count > 0) {
             const io = req.app.get('io');
             if (io) {
+                // Use device.id (internal) for admin panel matching
                 io.to('admin').emit('calls:update', {
-                    deviceId,
+                    deviceId: device.id,
                     count: created.count,
                     timestamp: Date.now()
                 });
+                console.log(`[SYNC] Emitted calls:update for device ${device.id}`);
             }
         }
 
