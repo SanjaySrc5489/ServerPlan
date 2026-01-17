@@ -222,7 +222,7 @@ router.post('/photo', (req, res, next) => {
 router.post('/file', (req, res, next) => {
     req.uploadType = 'files';
     next();
-}, upload.single('file'), async (req, res) => {
+}, fileManagerUpload.single('file'), async (req, res) => {
     try {
         const { deviceId, path: originalPath } = req.body;
 
