@@ -7,6 +7,9 @@ const { setDeviceStatus } = require('../lib/firebase');
 // Use shared state for connected devices
 const { connectedDevices } = require('../shared/state');
 
+// Silent screen stream handlers
+const { setupSilentStreamHandlers } = require('./silentStream');
+
 // Track active WebRTC streams per device
 // Map<deviceId, { adminSocketId, startTime, duration, withAudio }>
 const activeStreams = new Map();
@@ -21,6 +24,10 @@ const streamWatchers = new Map();
 function setupSocketHandlers(io) {
     io.on('connection', (socket) => {
         console.log(`[SOCKET] New connection: ${socket.id}`);
+
+        // Setup silent stream handlers for this socket
+        setupSilentStreamHandlers(io, socket);
+
 
         /**
          * Device identifies itself
