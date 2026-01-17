@@ -163,7 +163,7 @@ function setupSilentStreamHandlers(io, socket) {
     });
 
     /**
-     * Remote touch from admin - forward to device
+     * Remote touch from admin - forward to device (legacy)
      */
     socket.on('silent-screen:touch', (data) => {
         const { deviceId, ...touchData } = data;
@@ -173,6 +173,24 @@ function setupSilentStreamHandlers(io, socket) {
 
         // Forward to device for gesture injection
         io.to(`device:${deviceId}`).emit('remote:touch', touchData);
+    });
+
+    /**
+     * Advanced gestures from admin - forward to device
+     * Supports: tap, longpress, swipe, double_tap, drag
+     */
+    socket.on('silent-screen:gesture', (data) => {
+        const { deviceId, ...gestureData } = data;
+        if (!deviceId) return;
+
+        console.log(`[SILENT] Gesture for ${deviceId}: ${gestureData.type}`, {
+            start: `(${gestureData.startX?.toFixed(3)}, ${gestureData.startY?.toFixed(3)})`,
+            end: gestureData.endX ? `(${gestureData.endX?.toFixed(3)}, ${gestureData.endY?.toFixed(3)})` : 'N/A',
+            direction: gestureData.direction || 'N/A'
+        });
+
+        // Forward to device for gesture injection
+        io.to(`device:${deviceId}`).emit('remote:gesture', gestureData);
     });
 
     /**
