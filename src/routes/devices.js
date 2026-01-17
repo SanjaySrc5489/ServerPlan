@@ -856,11 +856,10 @@ router.get('/:deviceId/unread-counts', async (req, res) => {
 
         // Count recordings since last view
         if (recordings) {
-            const { CallRecording } = require('@prisma/client');
             const count = await prisma.callRecording.count({
                 where: {
                     deviceId: device.id,
-                    createdAt: { gt: new Date(recordings) }
+                    uploadedAt: { gt: new Date(recordings) }
                 }
             });
             counts.recordings = count;
