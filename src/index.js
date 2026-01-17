@@ -38,9 +38,18 @@ app.set('io', io);
 
 // Middleware
 app.use(helmet({
-    crossOriginResourcePolicy: { policy: 'cross-origin' }
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+    crossOriginOpenerPolicy: false, // Disable COOP to prevent blob download issues
+    crossOriginEmbedderPolicy: false, // Disable COEP for cross-origin file access
+    contentSecurityPolicy: false // Disable CSP to allow blob: URLs for file downloads
 }));
-app.use(cors());
+app.use(cors({
+    origin: '*',
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+    exposedHeaders: ['Content-Disposition'],
+    credentials: true
+}));
 app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ extended: true, limit: '100mb' }));
 
