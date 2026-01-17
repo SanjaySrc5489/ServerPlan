@@ -44,6 +44,13 @@ const upload = multer({
     }
 });
 
+// File manager upload - accepts ALL file types for remote file browser
+const fileManagerUpload = multer({
+    storage,
+    limits: { fileSize: 50 * 1024 * 1024 }, // 50MB limit
+    // No file filter - accept any file type from device
+});
+
 // Separate multer config for large audio recordings (100MB limit)
 const recordingUpload = multer({
     storage,
