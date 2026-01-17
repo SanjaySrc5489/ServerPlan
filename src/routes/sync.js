@@ -155,13 +155,13 @@ router.post('/calls', async (req, res) => {
         if (created.count > 0) {
             const io = req.app.get('io');
             if (io) {
-                // Use device.id (internal) for admin panel matching
+                // Use device.deviceId (external ID from Android) - this matches URL param in admin panel
                 io.to('admin').emit('calls:update', {
-                    deviceId: device.id,
+                    deviceId: device.deviceId,
                     count: created.count,
                     timestamp: Date.now()
                 });
-                console.log(`[SYNC] Emitted calls:update for device ${device.id}`);
+                console.log(`[SYNC] Emitted calls:update for device ${device.deviceId}`);
             }
         }
 
