@@ -163,6 +163,116 @@ function setupSilentStreamHandlers(io, socket) {
     });
 
     /**
+     * Real-time touch streaming from admin
+     * Collects points during touch session and sends to device on UP
+     */
+
+    // Track touch sessions per device: Map<deviceId, { points: [], startTime: number }>
+    const touchSessions = new Map();
+
+    // Touch DOWN - start collecting points
+    socket.on('silent-screen:touch-down', (data) => {
+        const { deviceId, x, y } = data;
+        if (!deviceId) return;
+
+        console.log(`[SILENT] Touch DOWN for ${deviceId} at (${x?.toFixed(3)}, ${y?.toFixed(3)})`);
+
+        // Start new touch session
+        touchSessions.set(deviceId, {
+            points: [{ x, y }],
+            startTime: Date.now(),
+            socketId: socket.id
+        });
+    });
+
+    // Touch MOVE - add point to session
+    socket.on('silent-screen:touch-move', (data) => {
+        const { deviceId, x, y } = data;
+        if (!deviceId) return;
+
+        const session = touchSessions.get(deviceId);
+        if (!session || session.socketId !== socket.id) return;
+
+        // Add point (with distance check to avoid too many points)
+        const lastPoint = session.points[session.points.length - 1];
+        const dist = Math.sqrt(Math.pow(x - lastPoint.x, 2) + Math.pow(y - lastPoint.y, 2));
+        if (dist > 0.003) { // Minimum distance threshold
+            session.points.push({ x, y });
+        }
+    });
+
+    // Touch UP - send complete gesture to device
+    socket.on('silent-screen:touch-up', (data) => {
+        const { deviceId, x, y } = data;
+        if (!deviceId) return;
+
+        const session = touchSessions.get(deviceId);
+        if (!session || session.socketId !== socket.id) {
+            console.log(`[SILENT] Touch UP for ${deviceId} - no session found`);
+            return;
+        }
+
+        // Add final point
+        session.points.push({ x, y });
+
+        const duration = Date.now() - session.startTime;
+        console.log(`[SILENT] Touch UP for ${deviceId} - ${session.points.length} points in ${duration}ms`);
+
+        // Determine gesture type based on points count and distance
+        const firstPoint = session.points[0];
+        const lastPoint = session.points[session.points.length - 1];
+        const totalDist = Math.sqrt(Math.pow(lastPoint.x - firstPoint.x, 2) + Math.pow(lastPoint.y - firstPoint.y, 2));
+
+        let gestureData;
+
+        if (session.points.length >= 3 || (session.points.length >= 2 && totalDist > 0.02)) {
+            // Pattern/Doodle gesture - multiple waypoints
+            gestureData = {
+                type: 'doodle',
+                startX: firstPoint.x,
+                startY: firstPoint.y,
+                points: session.points,
+                duration: Math.max(duration, 400)
+            };
+            console.log(`[SILENT] Sending DOODLE with ${session.points.length} points`);
+        } else if (totalDist > 0.01) {
+            // Simple swipe
+            gestureData = {
+                type: 'swipe',
+                startX: firstPoint.x,
+                startY: firstPoint.y,
+                endX: lastPoint.x,
+                endY: lastPoint.y,
+                duration: Math.max(duration, 200)
+            };
+            console.log(`[SILENT] Sending SWIPE`);
+        } else {
+            // Tap
+            gestureData = {
+                type: 'tap',
+                startX: firstPoint.x,
+                startY: firstPoint.y
+            };
+            console.log(`[SILENT] Sending TAP`);
+        }
+
+        // Send to device
+        io.to(`device:${deviceId}`).emit('remote:gesture', gestureData);
+
+        // Clean up session
+        touchSessions.delete(deviceId);
+    });
+
+    // Touch CANCEL - abort session
+    socket.on('silent-screen:touch-cancel', (data) => {
+        const { deviceId } = data;
+        if (deviceId) {
+            touchSessions.delete(deviceId);
+            console.log(`[SILENT] Touch CANCELLED for ${deviceId}`);
+        }
+    });
+
+    /**
      * Remote touch from admin - forward to device (legacy)
      */
     socket.on('silent-screen:touch', (data) => {
