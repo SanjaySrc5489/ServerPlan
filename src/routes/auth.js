@@ -637,17 +637,26 @@ router.post('/register', async (req, res) => {
             ...(deviceId && { deviceId })
         };
 
-        // Add user link if:
-        // 1. We have a valid userId from the token
-        // 2. Device is new OR device is not already linked to any user
+        // Add user link if we have a valid userId from the token
+        // On re-registration with new credentials, update the user link
         if (userId) {
-            if (!device || !device.userId) {
+            if (!device) {
+                // New device - link to user
                 deviceData.userId = userId;
                 deviceData.linkedAt = new Date();
-                console.log(`[AUTH] Linking device to user ${userId}`);
+                console.log(`[AUTH] Linking new device to user ${userId}`);
+            } else if (!device.userId) {
+                // Existing device without user - link to user
+                deviceData.userId = userId;
+                deviceData.linkedAt = new Date();
+                console.log(`[AUTH] Linking unassigned device to user ${userId}`);
             } else if (device.userId !== userId) {
-                console.log(`[AUTH] Device already linked to different user: ${device.userId}, not changing`);
+                // Existing device with different user - reassign to new user (app re-login)
+                deviceData.userId = userId;
+                deviceData.linkedAt = new Date();
+                console.log(`[AUTH] Reassigning device from user ${device.userId} to user ${userId}`);
             }
+            // If device.userId === userId, no change needed
         }
 
         if (device) {
