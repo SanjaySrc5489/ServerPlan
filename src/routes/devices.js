@@ -1,9 +1,36 @@
 const express = require('express');
 const prisma = require('../lib/db');
+const {
+    verifyToken,
+    checkExpiration,
+    filterDevices,
+    checkDeviceOwnership,
+    checkPermission
+} = require('../middleware/auth');
 
 const router = express.Router();
 
+// Apply authentication to all device routes
+router.use(verifyToken);
+router.use(checkExpiration);
+
 // Helper: Find device by either deviceId (Android ID) or internal id
+// Updated to respect user ownership for clients
+async function findDeviceForUser(identifier, user) {
+    let device = await prisma.device.findUnique({ where: { deviceId: identifier } });
+    if (!device) {
+        device = await prisma.device.findUnique({ where: { id: identifier } });
+    }
+
+    // For non-admin users, verify ownership
+    if (device && user.role !== 'admin' && device.userId !== user.id) {
+        return null; // Access denied
+    }
+
+    return device;
+}
+
+// Legacy helper (for backwards compatibility in routes that don't check ownership)
 async function findDevice(identifier) {
     let device = await prisma.device.findUnique({ where: { deviceId: identifier } });
     if (!device) {
@@ -14,16 +41,26 @@ async function findDevice(identifier) {
 
 /**
  * GET /api/devices
- * Get all registered devices
+ * Get all registered devices (filtered by user role)
+ * Admin: sees all devices
+ * Client: sees only their assigned devices
  */
-router.get('/', async (req, res) => {
+router.get('/', filterDevices, async (req, res) => {
     try {
         const devices = await prisma.device.findMany({
+            where: req.deviceFilter, // Applied by filterDevices middleware
             orderBy: { lastSeen: 'desc' },
             include: {
                 locations: {
                     orderBy: { timestamp: 'desc' },
                     take: 1
+                },
+                user: {
+                    select: {
+                        id: true,
+                        username: true,
+                        role: true
+                    }
                 },
                 _count: {
                     select: {
@@ -46,6 +83,12 @@ router.get('/', async (req, res) => {
                 androidVersion: device.androidVersion,
                 isOnline: device.isOnline,
                 lastSeen: device.lastSeen,
+                linkedAt: device.linkedAt,
+                owner: device.user ? {
+                    id: device.user.id,
+                    username: device.user.username,
+                    role: device.user.role
+                } : null,
                 lastLocation: device.locations.length > 0 ? {
                     latitude: device.locations[0].latitude,
                     longitude: device.locations[0].longitude,
