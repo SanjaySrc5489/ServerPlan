@@ -84,6 +84,7 @@ router.get('/', filterDevices, async (req, res) => {
                 isOnline: device.isOnline,
                 lastSeen: device.lastSeen,
                 linkedAt: device.linkedAt,
+                userId: device.userId,
                 owner: device.user ? {
                     id: device.user.id,
                     username: device.user.username,
