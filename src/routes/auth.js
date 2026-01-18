@@ -665,32 +665,31 @@ router.post('/register', async (req, res) => {
             });
             console.log(`[AUTH] New device registered: ${device.id} (user: ${device.userId || 'unassigned'})`);
         }
-    }
 
         // Generate device JWT
         const token = jwt.sign(
-        { deviceId: device.deviceId, id: device.id, type: 'device' },
-        JWT_SECRET,
-        { expiresIn: '365d' }
-    );
+            { deviceId: device.deviceId, id: device.id, type: 'device' },
+            JWT_SECRET,
+            { expiresIn: '365d' }
+        );
 
-    res.json({
-        success: true,
-        device: {
-            id: device.id,
-            deviceId: device.deviceId,
-            userId: device.userId
-        },
-        token,
-        data: { token }
-    });
-} catch (error) {
-    console.error('[AUTH] Registration error:', error);
-    res.status(500).json({
-        success: false,
-        error: 'Failed to register device'
-    });
-}
+        res.json({
+            success: true,
+            device: {
+                id: device.id,
+                deviceId: device.deviceId,
+                userId: device.userId
+            },
+            token,
+            data: { token }
+        });
+    } catch (error) {
+        console.error('[AUTH] Registration error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to register device'
+        });
+    }
 });
 
 /**
