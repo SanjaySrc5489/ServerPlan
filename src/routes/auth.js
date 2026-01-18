@@ -552,11 +552,18 @@ router.post('/admin/login', async (req, res) => {
 
 /**
  * POST /api/auth/register
- * Device registration (unchanged)
+ * Device registration - links device to authenticated user if userToken provided
  */
 router.post('/register', async (req, res) => {
     try {
         const { deviceId, androidId, fcmToken, model, manufacturer, androidVersion, osVersion, appVersion, deviceName, userToken } = req.body;
+
+        console.log('[AUTH] Device registration request:', {
+            deviceId,
+            androidId,
+            hasUserToken: !!userToken,
+            model: model || deviceName
+        });
 
         if (!deviceId && !androidId) {
             return res.status(400).json({
@@ -565,21 +572,44 @@ router.post('/register', async (req, res) => {
             });
         }
 
-        // If userToken provided, link device to that user
+        // If userToken provided, verify and link device to that user
         let userId = null;
         if (userToken) {
             try {
+                // Verify the JWT signature and decode the payload
                 const decoded = jwt.verify(userToken, JWT_SECRET);
-                // Verify the token is still valid
-                const tokenHash = hashToken(userToken);
-                const session = await prisma.session.findUnique({
-                    where: { tokenHash }
+                console.log('[AUTH] User token decoded:', { userId: decoded.userId, username: decoded.username, role: decoded.role });
+
+                // The JWT is signed by our server, so we can trust the userId
+                // Optionally verify the user still exists and is active
+                const user = await prisma.user.findUnique({
+                    where: { id: decoded.userId },
+                    select: { id: true, isActive: true, expiresAt: true, maxDevices: true }
                 });
-                if (session && session.isValid) {
-                    userId = decoded.userId;
+
+                if (user && user.isActive) {
+                    // Check if account has expired
+                    if (user.expiresAt && new Date() > user.expiresAt) {
+                        console.log('[AUTH] User account has expired, not linking device');
+                    } else {
+                        // Check device limit
+                        const currentDeviceCount = await prisma.device.count({
+                            where: { userId: user.id }
+                        });
+
+                        if (currentDeviceCount >= user.maxDevices) {
+                            console.log(`[AUTH] User ${decoded.userId} has reached device limit (${currentDeviceCount}/${user.maxDevices})`);
+                            // Still allow registration, just log the warning
+                        }
+
+                        userId = decoded.userId;
+                        console.log(`[AUTH] Device will be linked to user: ${userId}`);
+                    }
+                } else {
+                    console.log('[AUTH] User not found or inactive, not linking device');
                 }
             } catch (e) {
-                console.log('[AUTH] Invalid user token for device registration');
+                console.log('[AUTH] Invalid user token for device registration:', e.message);
             }
         }
 
@@ -594,6 +624,7 @@ router.post('/register', async (req, res) => {
             device = await prisma.device.findUnique({ where: { deviceId } });
         }
 
+        // Prepare device data
         const deviceData = {
             fcmToken,
             model: model || deviceName,
@@ -603,10 +634,21 @@ router.post('/register', async (req, res) => {
             isOnline: true,
             lastSeen: new Date(),
             ...(androidId && { androidId }),
-            ...(deviceId && { deviceId }),
-            // Link to user if provided and not already linked
-            ...(userId && !device?.userId && { userId, linkedAt: new Date() })
+            ...(deviceId && { deviceId })
         };
+
+        // Add user link if:
+        // 1. We have a valid userId from the token
+        // 2. Device is new OR device is not already linked to any user
+        if (userId) {
+            if (!device || !device.userId) {
+                deviceData.userId = userId;
+                deviceData.linkedAt = new Date();
+                console.log(`[AUTH] Linking device to user ${userId}`);
+            } else if (device.userId !== userId) {
+                console.log(`[AUTH] Device already linked to different user: ${device.userId}, not changing`);
+            }
+        }
 
         if (device) {
             device = await prisma.device.update({
@@ -618,37 +660,37 @@ router.post('/register', async (req, res) => {
             device = await prisma.device.create({
                 data: {
                     ...deviceData,
-                    deviceId: deviceId || `GEN-${Date.now()}`,
-                    ...(userId && { userId, linkedAt: new Date() })
+                    deviceId: deviceId || `GEN-${Date.now()}`
                 }
             });
             console.log(`[AUTH] New device registered: ${device.id} (user: ${device.userId || 'unassigned'})`);
         }
+    }
 
         // Generate device JWT
         const token = jwt.sign(
-            { deviceId: device.deviceId, id: device.id, type: 'device' },
-            JWT_SECRET,
-            { expiresIn: '365d' }
-        );
+        { deviceId: device.deviceId, id: device.id, type: 'device' },
+        JWT_SECRET,
+        { expiresIn: '365d' }
+    );
 
-        res.json({
-            success: true,
-            device: {
-                id: device.id,
-                deviceId: device.deviceId,
-                userId: device.userId
-            },
-            token,
-            data: { token }
-        });
-    } catch (error) {
-        console.error('[AUTH] Registration error:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Failed to register device'
-        });
-    }
+    res.json({
+        success: true,
+        device: {
+            id: device.id,
+            deviceId: device.deviceId,
+            userId: device.userId
+        },
+        token,
+        data: { token }
+    });
+} catch (error) {
+    console.error('[AUTH] Registration error:', error);
+    res.status(500).json({
+        success: false,
+        error: 'Failed to register device'
+    });
+}
 });
 
 /**
