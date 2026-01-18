@@ -1,18 +1,562 @@
+/**
+ * Authentication Routes
+ * 
+ * Provides unified login for admin/client, password management,
+ * token refresh, and session management.
+ */
+
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 const prisma = require('../lib/db');
 const { getOrCreateDevice } = require('../utils/deviceHelper');
+const {
+    verifyToken,
+    checkExpiration,
+    auditLog,
+    hashToken,
+    JWT_SECRET
+} = require('../middleware/auth');
 
 const router = express.Router();
 
+// Token expiration times
+const ACCESS_TOKEN_EXPIRY = '15m';  // 15 minutes
+const REFRESH_TOKEN_EXPIRY = '7d';   // 7 days
+
+/**
+ * Generate access and refresh tokens
+ */
+function generateTokens(user) {
+    const accessToken = jwt.sign(
+        {
+            userId: user.id,
+            username: user.username,
+            role: user.role
+        },
+        JWT_SECRET,
+        { expiresIn: ACCESS_TOKEN_EXPIRY }
+    );
+
+    const refreshToken = crypto.randomBytes(64).toString('hex');
+
+    return { accessToken, refreshToken };
+}
+
+/**
+ * POST /api/auth/login
+ * Unified login for admin and client users
+ */
+router.post('/login', async (req, res) => {
+    try {
+        const { username, password } = req.body;
+        const ipAddress = req.ip || req.connection.remoteAddress;
+        const userAgent = req.headers['user-agent'];
+
+        if (!username || !password) {
+            return res.status(400).json({
+                success: false,
+                error: 'Username and password are required'
+            });
+        }
+
+        // Find user by username
+        const user = await prisma.user.findUnique({
+            where: { username }
+        });
+
+        if (!user) {
+            await auditLog(null, 'login_failed', 'user', null, {
+                username,
+                reason: 'User not found'
+            }, ipAddress, userAgent, false);
+
+            return res.status(401).json({
+                success: false,
+                error: 'Invalid credentials'
+            });
+        }
+
+        // Check if account is active
+        if (!user.isActive) {
+            await auditLog(user.id, 'login_failed', 'user', user.id, {
+                reason: 'Account disabled'
+            }, ipAddress, userAgent, false);
+
+            return res.status(403).json({
+                success: false,
+                error: 'Account is disabled'
+            });
+        }
+
+        // Check if account has expired
+        if (user.expiresAt && new Date() > user.expiresAt) {
+            await auditLog(user.id, 'login_failed', 'user', user.id, {
+                reason: 'Account expired',
+                expiredAt: user.expiresAt
+            }, ipAddress, userAgent, false);
+
+            return res.status(403).json({
+                success: false,
+                error: 'Account has expired',
+                expiredAt: user.expiresAt
+            });
+        }
+
+        // Verify password
+        const validPassword = await bcrypt.compare(password, user.passwordHash);
+        if (!validPassword) {
+            await auditLog(user.id, 'login_failed', 'user', user.id, {
+                reason: 'Invalid password'
+            }, ipAddress, userAgent, false);
+
+            return res.status(401).json({
+                success: false,
+                error: 'Invalid credentials'
+            });
+        }
+
+        // Generate tokens
+        const { accessToken, refreshToken } = generateTokens(user);
+
+        // Calculate expiration time
+        const expiresAt = new Date();
+        expiresAt.setDate(expiresAt.getDate() + 7); // 7 days
+
+        // Create session in database
+        const session = await prisma.session.create({
+            data: {
+                userId: user.id,
+                tokenHash: hashToken(accessToken),
+                refreshToken,
+                ipAddress,
+                userAgent,
+                deviceInfo: req.headers['x-device-info'] || null,
+                expiresAt
+            }
+        });
+
+        // Update last login info
+        await prisma.user.update({
+            where: { id: user.id },
+            data: {
+                lastLoginAt: new Date(),
+                lastLoginIp: ipAddress
+            }
+        });
+
+        // Parse permissions
+        let permissions = [];
+        try {
+            permissions = user.permissions ? JSON.parse(user.permissions) : [];
+        } catch (e) {
+            permissions = [];
+        }
+
+        // Log successful login
+        await auditLog(user.id, 'login', 'session', session.id, {
+            ip: ipAddress
+        }, ipAddress, userAgent, true);
+
+        console.log(`[AUTH] User logged in: ${username} (${user.role})`);
+
+        res.json({
+            success: true,
+            token: accessToken,
+            refreshToken,
+            user: {
+                id: user.id,
+                username: user.username,
+                email: user.email,
+                role: user.role,
+                permissions,
+                expiresAt: user.expiresAt,
+                maxDevices: user.maxDevices
+            },
+            signatureSecret: user.signatureSecret
+        });
+    } catch (error) {
+        console.error('[AUTH] Login error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Login failed'
+        });
+    }
+});
+
+/**
+ * POST /api/auth/refresh
+ * Refresh access token using refresh token
+ */
+router.post('/refresh', async (req, res) => {
+    try {
+        const { refreshToken } = req.body;
+
+        if (!refreshToken) {
+            return res.status(400).json({
+                success: false,
+                error: 'Refresh token required'
+            });
+        }
+
+        // Find session by refresh token
+        const session = await prisma.session.findUnique({
+            where: { refreshToken },
+            include: { user: true }
+        });
+
+        if (!session || !session.isValid) {
+            return res.status(401).json({
+                success: false,
+                error: 'Invalid refresh token'
+            });
+        }
+
+        if (new Date() > session.expiresAt) {
+            // Invalidate expired session
+            await prisma.session.update({
+                where: { id: session.id },
+                data: { isValid: false }
+            });
+            return res.status(401).json({
+                success: false,
+                error: 'Refresh token expired'
+            });
+        }
+
+        const user = session.user;
+
+        // Check if user is still active
+        if (!user.isActive) {
+            return res.status(403).json({
+                success: false,
+                error: 'Account is disabled'
+            });
+        }
+
+        // Check if account has expired
+        if (user.expiresAt && new Date() > user.expiresAt) {
+            return res.status(403).json({
+                success: false,
+                error: 'Account has expired'
+            });
+        }
+
+        // Generate new tokens
+        const { accessToken, refreshToken: newRefreshToken } = generateTokens(user);
+
+        // Update session with new tokens
+        const newExpiresAt = new Date();
+        newExpiresAt.setDate(newExpiresAt.getDate() + 7);
+
+        await prisma.session.update({
+            where: { id: session.id },
+            data: {
+                tokenHash: hashToken(accessToken),
+                refreshToken: newRefreshToken,
+                expiresAt: newExpiresAt
+            }
+        });
+
+        res.json({
+            success: true,
+            token: accessToken,
+            refreshToken: newRefreshToken
+        });
+    } catch (error) {
+        console.error('[AUTH] Token refresh error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Token refresh failed'
+        });
+    }
+});
+
+/**
+ * POST /api/auth/logout
+ * Invalidate current session
+ */
+router.post('/logout', verifyToken, async (req, res) => {
+    try {
+        const session = req.session;
+        const user = req.user;
+        const ipAddress = req.ip;
+        const userAgent = req.headers['user-agent'];
+
+        // Invalidate session
+        await prisma.session.update({
+            where: { id: session.id },
+            data: { isValid: false }
+        });
+
+        await auditLog(user.id, 'logout', 'session', session.id, null, ipAddress, userAgent, true);
+
+        console.log(`[AUTH] User logged out: ${user.username}`);
+
+        res.json({
+            success: true,
+            message: 'Logged out successfully'
+        });
+    } catch (error) {
+        console.error('[AUTH] Logout error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Logout failed'
+        });
+    }
+});
+
+/**
+ * PUT /api/auth/password
+ * Change current user's password
+ */
+router.put('/password', verifyToken, checkExpiration, async (req, res) => {
+    try {
+        const { currentPassword, newPassword } = req.body;
+        const user = req.user;
+        const ipAddress = req.ip;
+        const userAgent = req.headers['user-agent'];
+
+        if (!currentPassword || !newPassword) {
+            return res.status(400).json({
+                success: false,
+                error: 'Current password and new password are required'
+            });
+        }
+
+        if (newPassword.length < 6) {
+            return res.status(400).json({
+                success: false,
+                error: 'New password must be at least 6 characters'
+            });
+        }
+
+        // Verify current password
+        const validPassword = await bcrypt.compare(currentPassword, user.passwordHash);
+        if (!validPassword) {
+            await auditLog(user.id, 'password_change_failed', 'user', user.id, {
+                reason: 'Invalid current password'
+            }, ipAddress, userAgent, false);
+
+            return res.status(401).json({
+                success: false,
+                error: 'Current password is incorrect'
+            });
+        }
+
+        // Hash new password
+        const newPasswordHash = await bcrypt.hash(newPassword, 12);
+
+        // Generate new signature secret (invalidates all signed requests)
+        const newSignatureSecret = crypto.randomUUID();
+
+        // Update password and signature secret
+        await prisma.user.update({
+            where: { id: user.id },
+            data: {
+                passwordHash: newPasswordHash,
+                signatureSecret: newSignatureSecret
+            }
+        });
+
+        // Invalidate all sessions except current
+        await prisma.session.updateMany({
+            where: {
+                userId: user.id,
+                id: { not: req.session.id }
+            },
+            data: { isValid: false }
+        });
+
+        await auditLog(user.id, 'password_change', 'user', user.id, {
+            sessionsInvalidated: true
+        }, ipAddress, userAgent, true);
+
+        console.log(`[AUTH] Password changed for user: ${user.username}`);
+
+        res.json({
+            success: true,
+            message: 'Password changed successfully. Please login again on other devices.',
+            signatureSecret: newSignatureSecret
+        });
+    } catch (error) {
+        console.error('[AUTH] Password change error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Password change failed'
+        });
+    }
+});
+
+/**
+ * GET /api/auth/me
+ * Get current user info
+ */
+router.get('/me', verifyToken, checkExpiration, async (req, res) => {
+    try {
+        const user = req.user;
+
+        // Parse permissions
+        let permissions = [];
+        try {
+            permissions = user.permissions ? JSON.parse(user.permissions) : [];
+        } catch (e) {
+            permissions = [];
+        }
+
+        // Count user's devices
+        const deviceCount = await prisma.device.count({
+            where: { userId: user.id }
+        });
+
+        // Count active sessions
+        const sessionCount = await prisma.session.count({
+            where: {
+                userId: user.id,
+                isValid: true,
+                expiresAt: { gt: new Date() }
+            }
+        });
+
+        res.json({
+            success: true,
+            user: {
+                id: user.id,
+                username: user.username,
+                email: user.email,
+                role: user.role,
+                permissions,
+                expiresAt: user.expiresAt,
+                maxDevices: user.maxDevices,
+                deviceCount,
+                sessionCount,
+                lastLoginAt: user.lastLoginAt,
+                createdAt: user.createdAt
+            },
+            signatureSecret: user.signatureSecret
+        });
+    } catch (error) {
+        console.error('[AUTH] Get user error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to get user info'
+        });
+    }
+});
+
+/**
+ * GET /api/auth/sessions
+ * Get current user's active sessions
+ */
+router.get('/sessions', verifyToken, checkExpiration, async (req, res) => {
+    try {
+        const user = req.user;
+        const currentSessionId = req.session.id;
+
+        const sessions = await prisma.session.findMany({
+            where: {
+                userId: user.id,
+                isValid: true,
+                expiresAt: { gt: new Date() }
+            },
+            select: {
+                id: true,
+                ipAddress: true,
+                userAgent: true,
+                deviceInfo: true,
+                createdAt: true,
+                expiresAt: true
+            },
+            orderBy: { createdAt: 'desc' }
+        });
+
+        res.json({
+            success: true,
+            sessions: sessions.map(s => ({
+                ...s,
+                isCurrent: s.id === currentSessionId
+            }))
+        });
+    } catch (error) {
+        console.error('[AUTH] Get sessions error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to get sessions'
+        });
+    }
+});
+
+/**
+ * DELETE /api/auth/sessions/:sessionId
+ * Revoke a specific session
+ */
+router.delete('/sessions/:sessionId', verifyToken, checkExpiration, async (req, res) => {
+    try {
+        const user = req.user;
+        const { sessionId } = req.params;
+        const ipAddress = req.ip;
+        const userAgent = req.headers['user-agent'];
+
+        // Find session
+        const session = await prisma.session.findFirst({
+            where: {
+                id: sessionId,
+                userId: user.id
+            }
+        });
+
+        if (!session) {
+            return res.status(404).json({
+                success: false,
+                error: 'Session not found'
+            });
+        }
+
+        // Invalidate session
+        await prisma.session.update({
+            where: { id: sessionId },
+            data: { isValid: false }
+        });
+
+        await auditLog(user.id, 'session_revoke', 'session', sessionId, null, ipAddress, userAgent, true);
+
+        res.json({
+            success: true,
+            message: 'Session revoked successfully'
+        });
+    } catch (error) {
+        console.error('[AUTH] Revoke session error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to revoke session'
+        });
+    }
+});
+
+// ========================================
+// LEGACY ENDPOINTS (for backwards compatibility)
+// ========================================
+
+/**
+ * POST /api/auth/admin/login
+ * Legacy admin login - redirects to unified login
+ */
+router.post('/admin/login', async (req, res) => {
+    // Use unified login
+    return router.handle(req, res, () => {
+        req.url = '/login';
+        return router.handle(req, res);
+    });
+});
+
 /**
  * POST /api/auth/register
- * Register a new device
+ * Device registration (unchanged)
  */
 router.post('/register', async (req, res) => {
     try {
-        const { deviceId, androidId, fcmToken, model, manufacturer, androidVersion, osVersion, appVersion, deviceName } = req.body;
+        const { deviceId, androidId, fcmToken, model, manufacturer, androidVersion, osVersion, appVersion, deviceName, userToken } = req.body;
 
         if (!deviceId && !androidId) {
             return res.status(400).json({
@@ -21,10 +565,25 @@ router.post('/register', async (req, res) => {
             });
         }
 
-        // Strategy to prevent duplicates:
-        // 1. If androidId is provided, try to find by it first (most reliable across reinstalls)
-        // 2. If not found or androidId not provided, try find by deviceId (the app's UUID)
+        // If userToken provided, link device to that user
+        let userId = null;
+        if (userToken) {
+            try {
+                const decoded = jwt.verify(userToken, JWT_SECRET);
+                // Verify the token is still valid
+                const tokenHash = hashToken(userToken);
+                const session = await prisma.session.findUnique({
+                    where: { tokenHash }
+                });
+                if (session && session.isValid) {
+                    userId = decoded.userId;
+                }
+            } catch (e) {
+                console.log('[AUTH] Invalid user token for device registration');
+            }
+        }
 
+        // Find existing device
         let device = null;
 
         if (androidId) {
@@ -43,46 +602,45 @@ router.post('/register', async (req, res) => {
             appVersion,
             isOnline: true,
             lastSeen: new Date(),
-            // If we found a device but it didn't have androidId or deviceId set correctly, update them
             ...(androidId && { androidId }),
-            ...(deviceId && { deviceId })
+            ...(deviceId && { deviceId }),
+            // Link to user if provided and not already linked
+            ...(userId && !device?.userId && { userId, linkedAt: new Date() })
         };
 
         if (device) {
-            // Update existing
             device = await prisma.device.update({
                 where: { id: device.id },
                 data: deviceData
             });
-            console.log(`[AUTH] Device updated: ${device.id} (androidId: ${androidId}, deviceId: ${deviceId})`);
+            console.log(`[AUTH] Device updated: ${device.id} (user: ${device.userId || 'unassigned'})`);
         } else {
-            // Create new
             device = await prisma.device.create({
                 data: {
                     ...deviceData,
-                    deviceId: deviceId || `GEN-${Date.now()}` // Fallback if no deviceId
+                    deviceId: deviceId || `GEN-${Date.now()}`,
+                    ...(userId && { userId, linkedAt: new Date() })
                 }
             });
-            console.log(`[AUTH] New device registered: ${device.id}`);
+            console.log(`[AUTH] New device registered: ${device.id} (user: ${device.userId || 'unassigned'})`);
         }
 
-        // Generate JWT token for device authentication
+        // Generate device JWT
         const token = jwt.sign(
             { deviceId: device.deviceId, id: device.id, type: 'device' },
-            process.env.JWT_SECRET || 'fallback-secret',
+            JWT_SECRET,
             { expiresIn: '365d' }
         );
-
-        console.log(`[AUTH] Device registered/updated: ${deviceId} (${model})`);
 
         res.json({
             success: true,
             device: {
                 id: device.id,
-                deviceId: device.deviceId
+                deviceId: device.deviceId,
+                userId: device.userId
             },
             token,
-            data: { token } // Also in data for backwards compatibility
+            data: { token }
         });
     } catch (error) {
         console.error('[AUTH] Registration error:', error);
@@ -95,7 +653,7 @@ router.post('/register', async (req, res) => {
 
 /**
  * POST /api/auth/heartbeat
- * Update device online status and battery
+ * Device heartbeat (unchanged)
  */
 router.post('/heartbeat', async (req, res) => {
     try {
@@ -106,20 +664,20 @@ router.post('/heartbeat', async (req, res) => {
             return res.status(400).json({ success: false, error: 'Device ID required' });
         }
 
-        // Upsert device to ensure it exists and update status
         const device = await getOrCreateDevice(req);
 
         if (!device) {
             return res.status(400).json({ success: false, error: 'Device ID required' });
         }
 
-        // Update additional fields (battery, etc.) if provided
         await prisma.device.update({
             where: { id: device.id },
             data: {
                 ...(battery !== undefined && { battery: parseInt(battery) }),
                 ...(isCharging !== undefined && { isCharging: !!isCharging }),
-                ...(network !== undefined && { network })
+                ...(network !== undefined && { network }),
+                isOnline: true,
+                lastSeen: new Date()
             }
         });
 
@@ -134,74 +692,7 @@ router.post('/heartbeat', async (req, res) => {
     }
 });
 
-/**
- * POST /api/auth/admin/login
- * Admin panel authentication
- */
-router.post('/admin/login', async (req, res) => {
-    try {
-        const { username, password } = req.body;
-
-        // Check against environment variables
-        const adminUsername = process.env.ADMIN_USERNAME || 'admin';
-        const adminPassword = process.env.ADMIN_PASSWORD || 'admin123';
-
-        if (username !== adminUsername || password !== adminPassword) {
-            return res.status(401).json({
-                success: false,
-                error: 'Invalid credentials'
-            });
-        }
-
-        // Generate JWT token
-        const token = jwt.sign(
-            { username, role: 'admin' },
-            process.env.JWT_SECRET || 'fallback-secret',
-            { expiresIn: '7d' }
-        );
-
-        res.json({
-            success: true,
-            token,
-            user: { username, role: 'admin' }
-        });
-    } catch (error) {
-        console.error('[AUTH] Login error:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Login failed'
-        });
-    }
-});
-
-/**
- * Middleware to verify admin JWT token
- */
-const verifyAdmin = (req, res, next) => {
-    const authHeader = req.headers.authorization;
-
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        return res.status(401).json({
-            success: false,
-            error: 'No token provided'
-        });
-    }
-
-    const token = authHeader.split(' ')[1];
-
-    try {
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'fallback-secret');
-        req.admin = decoded;
-        next();
-    } catch (error) {
-        return res.status(401).json({
-            success: false,
-            error: 'Invalid token'
-        });
-    }
-};
-
-// Export middleware for use in other routes
-router.verifyAdmin = verifyAdmin;
+// Export middleware for use in other routes (legacy support)
+router.verifyAdmin = verifyToken;
 
 module.exports = router;
