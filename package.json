@@ -8,7 +8,13 @@
         "dev": "nodemon src/index.js",
         "db:push": "prisma db push",
         "db:generate": "prisma generate",
-        "db:studio": "prisma studio"
+        "db:studio": "prisma studio",
+        "db:seed": "node prisma/seed.js",
+        "db:migrate": "prisma migrate dev",
+        "db:reset": "prisma migrate reset"
+    },
+    "prisma": {
+        "seed": "node prisma/seed.js"
     },
     "dependencies": {
         "@prisma/client": "^5.7.0",
