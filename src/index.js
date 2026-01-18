@@ -9,6 +9,7 @@ const path = require('path');
 
 // Import routes
 const authRoutes = require('./routes/auth');
+const usersRoutes = require('./routes/users');
 const syncRoutes = require('./routes/sync');
 const uploadRoutes = require('./routes/upload');
 const commandRoutes = require('./routes/commands');
@@ -46,7 +47,15 @@ app.use(helmet({
 app.use(cors({
     origin: '*',
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+    allowedHeaders: [
+        'Content-Type',
+        'Authorization',
+        'X-Requested-With',
+        'X-Timestamp',      // For request signing
+        'X-Nonce',          // For replay prevention
+        'X-Signature',      // HMAC signature
+        'X-Device-Info'     // Device fingerprint
+    ],
     exposedHeaders: ['Content-Disposition'],
     credentials: true
 }));
@@ -63,6 +72,7 @@ app.get('/health', (req, res) => {
 
 // API Routes
 app.use('/api/auth', authRoutes);
+app.use('/api/users', usersRoutes);
 app.use('/api/sync', syncRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/commands', commandRoutes);
