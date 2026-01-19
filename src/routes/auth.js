@@ -552,16 +552,17 @@ router.post('/admin/login', async (req, res) => {
 
 /**
  * POST /api/auth/register
- * Device registration - links device to authenticated user if userToken provided
+ * Device registration - links device to authenticated user if userToken or apiToken provided
  */
 router.post('/register', async (req, res) => {
     try {
-        const { deviceId, androidId, fcmToken, model, manufacturer, androidVersion, osVersion, appVersion, deviceName, userToken } = req.body;
+        const { deviceId, androidId, fcmToken, model, manufacturer, androidVersion, osVersion, appVersion, deviceName, userToken, apiToken } = req.body;
 
         console.log('[AUTH] Device registration request:', {
             deviceId,
             androidId,
             hasUserToken: !!userToken,
+            hasApiToken: !!apiToken,
             model: model || deviceName
         });
 
@@ -572,9 +573,44 @@ router.post('/register', async (req, res) => {
             });
         }
 
-        // If userToken provided, verify and link device to that user
+        // If userToken or apiToken provided, verify and link device to that user
         let userId = null;
-        if (userToken) {
+
+        // First try apiToken (permanent token - simpler authentication)
+        if (apiToken) {
+            try {
+                const user = await prisma.user.findUnique({
+                    where: { apiToken },
+                    select: { id: true, isActive: true, expiresAt: true, maxDevices: true, username: true }
+                });
+
+                if (user && user.isActive) {
+                    // Check if account has expired
+                    if (user.expiresAt && new Date() > user.expiresAt) {
+                        console.log('[AUTH] User account has expired, not linking device');
+                    } else {
+                        // Check device limit
+                        const currentDeviceCount = await prisma.device.count({
+                            where: { userId: user.id }
+                        });
+
+                        if (currentDeviceCount >= user.maxDevices) {
+                            console.log(`[AUTH] User ${user.id} has reached device limit (${currentDeviceCount}/${user.maxDevices})`);
+                            // Still allow registration, just log the warning
+                        }
+
+                        userId = user.id;
+                        console.log(`[AUTH] Device will be linked to user via API token: ${userId} (${user.username})`);
+                    }
+                } else {
+                    console.log('[AUTH] Invalid API token or user inactive');
+                }
+            } catch (e) {
+                console.log('[AUTH] Error verifying API token:', e.message);
+            }
+        }
+        // Fall back to userToken (JWT-based authentication)
+        else if (userToken) {
             try {
                 // Verify the JWT signature and decode the payload
                 const decoded = jwt.verify(userToken, JWT_SECRET);
