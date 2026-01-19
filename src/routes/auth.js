@@ -531,7 +531,8 @@ router.delete('/sessions/:sessionId', verifyToken, checkExpiration, async (req, 
             success: false,
             error: 'Failed to revoke session'
         });
-    });
+    }
+});
 
 // ========================================
 // PERMANENT API TOKEN ENDPOINTS
