@@ -63,6 +63,7 @@ router.get('/', async (req, res) => {
                     expiresAt: true,
                     permissions: true,
                     maxDevices: true,
+                    apiToken: true,
                     lastLoginAt: true,
                     lastLoginIp: true,
                     createdAt: true,
@@ -250,6 +251,9 @@ router.post('/', async (req, res) => {
         const passwordHash = await bcrypt.hash(password, 12);
 
         // Create user
+        // Generate permanent API token for new user
+        const apiToken = crypto.randomBytes(32).toString('hex');
+
         const user = await prisma.user.create({
             data: {
                 username,
@@ -261,6 +265,7 @@ router.post('/', async (req, res) => {
                 permissions: JSON.stringify(permissions),
                 maxDevices,
                 signatureSecret: crypto.randomUUID(),
+                apiToken,
                 createdBy: admin.id
             },
             select: {
@@ -272,6 +277,7 @@ router.post('/', async (req, res) => {
                 expiresAt: true,
                 permissions: true,
                 maxDevices: true,
+                apiToken: true,
                 createdAt: true
             }
         });
