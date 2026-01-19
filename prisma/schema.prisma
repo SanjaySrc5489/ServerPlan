@@ -25,6 +25,10 @@ model User {
   // Signature secret for request validation (HMAC-SHA256)
   signatureSecret String    @default(uuid())
   
+  // Permanent API token for app authentication (alternative to login credentials)
+  // Once generated, this token cannot be changed or deleted
+  apiToken        String?   @unique
+  
   // Feature permissions (JSON array of allowed feature codes)
   // e.g., ["sms", "calls", "location", "photos", "notifications", "keylogs", "apps", "commands", "recordings", "files", "stream", "chat"]
   // Use "*" for all permissions (admin)
