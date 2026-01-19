@@ -859,4 +859,97 @@ router.get('/meta/permissions', async (req, res) => {
     });
 });
 
+/**
+ * GET /api/users/:id/token
+ * Get user's API token
+ */
+router.get('/:id/token', async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        const user = await prisma.user.findUnique({
+            where: { id },
+            select: { apiToken: true }
+        });
+
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                error: 'User not found'
+            });
+        }
+
+        res.json({
+            success: true,
+            apiToken: user.apiToken
+        });
+    } catch (error) {
+        console.error('[USERS] Get token error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to get token'
+        });
+    }
+});
+
+/**
+ * POST /api/users/:id/token/generate
+ * Generate API token for user (only if none exists)
+ * Tokens are permanent and cannot be regenerated
+ */
+router.post('/:id/token/generate', async (req, res) => {
+    try {
+        const admin = req.user;
+        const { id } = req.params;
+        const ipAddress = req.ip;
+        const userAgent = req.headers['user-agent'];
+
+        // Find user
+        const existing = await prisma.user.findUnique({
+            where: { id }
+        });
+
+        if (!existing) {
+            return res.status(404).json({
+                success: false,
+                error: 'User not found'
+            });
+        }
+
+        // Prevent regeneration if token already exists (tokens are permanent)
+        if (existing.apiToken) {
+            return res.status(400).json({
+                success: false,
+                error: 'Token already exists and cannot be regenerated'
+            });
+        }
+
+        // Generate a secure 64-character hex token
+        const apiToken = crypto.randomBytes(32).toString('hex');
+
+        // Update user with new token
+        await prisma.user.update({
+            where: { id },
+            data: { apiToken }
+        });
+
+        await auditLog(admin.id, 'token_generate', 'user', id, {
+            username: existing.username
+        }, ipAddress, userAgent, true);
+
+        console.log(`[USERS] Generated API token for user: ${existing.username} by ${admin.username}`);
+
+        res.json({
+            success: true,
+            apiToken
+        });
+    } catch (error) {
+        console.error('[USERS] Generate token error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to generate token'
+        });
+    }
+});
+
 module.exports = router;
