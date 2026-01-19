@@ -84,6 +84,29 @@ router.post('/result', async (req, res) => {
         const finalStatus = status || (success ? 'completed' : 'failed');
         const finalResult = result || { success, data, error };
 
+        // Check if command exists first
+        const existingCommand = await prisma.command.findUnique({
+            where: { id: commandId }
+        });
+
+        if (!existingCommand) {
+            // Command not found - might be from socket command or already processed
+            console.warn(`[COMMANDS] Command ${commandId} not found in DB - ignoring result`);
+
+            // Still emit to admin panel even if not in DB
+            const io = req.app.get('io');
+            if (io) {
+                io.to('admin').emit('command:result', {
+                    commandId,
+                    deviceId,
+                    status: finalStatus,
+                    result: finalResult
+                });
+            }
+
+            return res.json({ success: true, message: 'Command not in DB, result acknowledged' });
+        }
+
         const command = await prisma.command.update({
             where: { id: commandId },
             data: {
