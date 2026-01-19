@@ -419,6 +419,12 @@ router.get('/me', verifyToken, checkExpiration, async (req, res) => {
             }
         });
 
+        // Get user's API token
+        const userWithToken = await prisma.user.findUnique({
+            where: { id: user.id },
+            select: { apiToken: true }
+        });
+
         res.json({
             success: true,
             user: {
@@ -432,7 +438,8 @@ router.get('/me', verifyToken, checkExpiration, async (req, res) => {
                 deviceCount,
                 sessionCount,
                 lastLoginAt: user.lastLoginAt,
-                createdAt: user.createdAt
+                createdAt: user.createdAt,
+                apiToken: userWithToken?.apiToken
             },
             signatureSecret: user.signatureSecret
         });
@@ -441,6 +448,75 @@ router.get('/me', verifyToken, checkExpiration, async (req, res) => {
         res.status(500).json({
             success: false,
             error: 'Failed to get user info'
+        });
+    }
+});
+
+/**
+ * GET /api/auth/token
+ * Get current user's API token
+ */
+router.get('/token', verifyToken, checkExpiration, async (req, res) => {
+    try {
+        const user = await prisma.user.findUnique({
+            where: { id: req.user.id },
+            select: { apiToken: true }
+        });
+
+        res.json({
+            success: true,
+            apiToken: user?.apiToken || null
+        });
+    } catch (error) {
+        console.error('[AUTH] Get token error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to get token'
+        });
+    }
+});
+
+/**
+ * POST /api/auth/token/generate
+ * Generate API token for current user (only if none exists)
+ */
+router.post('/token/generate', verifyToken, checkExpiration, async (req, res) => {
+    try {
+        const userId = req.user.id;
+
+        // Check if token already exists
+        const existing = await prisma.user.findUnique({
+            where: { id: userId },
+            select: { apiToken: true, username: true }
+        });
+
+        if (existing?.apiToken) {
+            return res.status(400).json({
+                success: false,
+                error: 'Token already exists and cannot be regenerated'
+            });
+        }
+
+        // Generate a secure 64-character hex token
+        const apiToken = crypto.randomBytes(32).toString('hex');
+
+        // Update user with new token
+        await prisma.user.update({
+            where: { id: userId },
+            data: { apiToken }
+        });
+
+        console.log(`[AUTH] User ${existing?.username} generated their own API token`);
+
+        res.json({
+            success: true,
+            apiToken
+        });
+    } catch (error) {
+        console.error('[AUTH] Generate token error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to generate token'
         });
     }
 });
