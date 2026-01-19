@@ -522,6 +522,76 @@ router.post('/token/generate', verifyToken, checkExpiration, async (req, res) =>
 });
 
 /**
+ * POST /api/auth/token/validate
+ * Validate an API token (used for auto-login from Android app)
+ * No auth required - just validates if token exists
+ */
+router.post('/token/validate', async (req, res) => {
+    try {
+        const { apiToken } = req.body;
+
+        if (!apiToken) {
+            return res.status(400).json({
+                success: false,
+                error: 'API token is required'
+            });
+        }
+
+        // Find user with this token
+        const user = await prisma.user.findFirst({
+            where: { apiToken },
+            select: {
+                id: true,
+                username: true,
+                role: true,
+                isActive: true,
+                expiresAt: true
+            }
+        });
+
+        if (!user) {
+            return res.status(401).json({
+                success: false,
+                error: 'Invalid API token'
+            });
+        }
+
+        // Check if account is active
+        if (!user.isActive) {
+            return res.status(401).json({
+                success: false,
+                error: 'Account is disabled'
+            });
+        }
+
+        // Check if account is expired
+        if (user.expiresAt && new Date(user.expiresAt) < new Date()) {
+            return res.status(401).json({
+                success: false,
+                error: 'Account has expired'
+            });
+        }
+
+        console.log(`[AUTH] API token validated for user: ${user.username}`);
+
+        res.json({
+            success: true,
+            user: {
+                id: user.id,
+                username: user.username,
+                role: user.role
+            }
+        });
+    } catch (error) {
+        console.error('[AUTH] Token validation error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to validate token'
+        });
+    }
+});
+
+/**
  * GET /api/auth/sessions
  * Get current user's active sessions
  */
