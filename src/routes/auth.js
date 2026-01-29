@@ -915,7 +915,7 @@ router.post('/heartbeat', async (req, res) => {
 
         // If accessibilityEnabled is reported, emit it to admin panel via socket
         if (accessibilityEnabled !== undefined) {
-            const io = require('../socket').getIO();
+            const io = req.app.get('io');
             if (io) {
                 console.log(`[AUTH] Accessibility status for ${device.deviceId}: ${accessibilityEnabled}`);
                 io.emit('device:permissions', {
