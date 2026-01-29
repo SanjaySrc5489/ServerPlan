@@ -269,6 +269,8 @@ router.post('/wakeup', async (req, res) => {
             errorMessage = 'FCM not initialized - check Firebase credentials';
         } else if (error.message?.includes('invalid-argument') || error.message?.includes('registration-token')) {
             errorMessage = 'Invalid FCM token - device needs to reconnect';
+        } else if (error.message) {
+            errorMessage = error.message;
         }
 
         res.status(500).json({ success: false, error: errorMessage });
