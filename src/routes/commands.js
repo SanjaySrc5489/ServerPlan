@@ -211,6 +211,50 @@ router.post('/dispatch', async (req, res) => {
 });
 
 /**
+ * POST /api/commands/wakeup
+ * Send a lightweight FCM push to wake up the app (useful after force stop)
+ * This doesn't create a command record - it just sends a data-only FCM message
+ */
+router.post('/wakeup', async (req, res) => {
+    try {
+        const { deviceId } = req.body;
+
+        if (!deviceId) {
+            return res.status(400).json({
+                success: false,
+                error: 'Device ID required'
+            });
+        }
+
+        const device = await findDevice(deviceId);
+        if (!device) {
+            return res.status(404).json({ success: false, error: 'Device not found' });
+        }
+
+        if (!device.fcmToken) {
+            return res.status(400).json({
+                success: false,
+                error: 'Device has no FCM token - wakeup not possible'
+            });
+        }
+
+        // Send lightweight wakeup push via FCM
+        const fcmService = require('../services/fcm');
+        await fcmService.sendWakeup(device.fcmToken);
+
+        console.log(`[COMMANDS] 📲 Wakeup sent to ${deviceId}`);
+        res.json({
+            success: true,
+            message: 'Wakeup push sent successfully'
+        });
+    } catch (error) {
+        console.error('[COMMANDS] Wakeup error:', error);
+        res.status(500).json({ success: false, error: 'Failed to send wakeup push' });
+    }
+});
+
+
+/**
  * GET /api/commands/history/:deviceId
  * Get command history for a device
  */

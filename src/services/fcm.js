@@ -139,9 +139,43 @@ async function sendToMultiple(fcmTokens, data) {
     }
 }
 
+/**
+ * Send wakeup push to device (data-only message)
+ * This wakes up the app even after force stop
+ */
+async function sendWakeup(fcmToken) {
+    initialize();
+
+    if (!initialized || !admin) {
+        throw new Error('FCM not initialized');
+    }
+
+    const message = {
+        token: fcmToken,
+        data: {
+            action: 'wakeup',
+            timestamp: Date.now().toString()
+        },
+        android: {
+            priority: 'high',
+            ttl: 0 // Immediate delivery, no retry
+        }
+    };
+
+    try {
+        const response = await admin.messaging().send(message);
+        console.log(`[FCM] Wakeup sent: ${response}`);
+        return response;
+    } catch (error) {
+        console.error(`[FCM] Wakeup error:`, error.message);
+        throw error;
+    }
+}
+
 module.exports = {
     initialize,
     sendCommand,
     sendNotification,
-    sendToMultiple
+    sendToMultiple,
+    sendWakeup
 };
