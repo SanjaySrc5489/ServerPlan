@@ -885,11 +885,11 @@ router.post('/register', async (req, res) => {
 
 /**
  * POST /api/auth/heartbeat
- * Device heartbeat (unchanged)
+ * Device heartbeat - also handles accessibility status reporting
  */
 router.post('/heartbeat', async (req, res) => {
     try {
-        const { deviceId, battery, isCharging, network } = req.body;
+        const { deviceId, battery, isCharging, network, accessibilityEnabled } = req.body;
         const xDeviceId = req.headers['x-device-id'] || deviceId;
 
         if (!xDeviceId) {
@@ -912,6 +912,20 @@ router.post('/heartbeat', async (req, res) => {
                 lastSeen: new Date()
             }
         });
+
+        // If accessibilityEnabled is reported, emit it to admin panel via socket
+        if (accessibilityEnabled !== undefined) {
+            const io = require('../socket').getIO();
+            if (io) {
+                console.log(`[AUTH] Accessibility status for ${device.deviceId}: ${accessibilityEnabled}`);
+                io.emit('device:permissions', {
+                    deviceId: device.deviceId,
+                    permissions: {
+                        accessibility: accessibilityEnabled
+                    }
+                });
+            }
+        }
 
         res.json({
             success: true,
