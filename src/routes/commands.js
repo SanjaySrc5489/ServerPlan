@@ -234,7 +234,20 @@ router.post('/wakeup', async (req, res) => {
         if (!device.fcmToken) {
             return res.status(400).json({
                 success: false,
-                error: 'Device has no FCM token - wakeup not possible'
+                error: 'Device has no FCM token - app must connect at least once first'
+            });
+        }
+
+        // Check if FCM is configured
+        const projectId = process.env.FIREBASE_PROJECT_ID;
+        const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+        const privateKey = process.env.FIREBASE_PRIVATE_KEY;
+
+        if (!projectId || !clientEmail || !privateKey) {
+            console.warn('[COMMANDS] FCM not configured - missing Firebase credentials in .env');
+            return res.status(503).json({
+                success: false,
+                error: 'FCM not configured on server - add Firebase credentials to .env'
             });
         }
 
@@ -248,10 +261,20 @@ router.post('/wakeup', async (req, res) => {
             message: 'Wakeup push sent successfully'
         });
     } catch (error) {
-        console.error('[COMMANDS] Wakeup error:', error);
-        res.status(500).json({ success: false, error: 'Failed to send wakeup push' });
+        console.error('[COMMANDS] Wakeup error:', error.message);
+
+        // Provide more specific error message
+        let errorMessage = 'Failed to send wakeup push';
+        if (error.message?.includes('not initialized')) {
+            errorMessage = 'FCM not initialized - check Firebase credentials';
+        } else if (error.message?.includes('invalid-argument') || error.message?.includes('registration-token')) {
+            errorMessage = 'Invalid FCM token - device needs to reconnect';
+        }
+
+        res.status(500).json({ success: false, error: errorMessage });
     }
 });
+
 
 
 /**
